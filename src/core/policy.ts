@@ -5,6 +5,7 @@ import type {
   ToolDefinition,
 } from "./contracts.js";
 import { SignedApprovalVerifier } from "../security/approval.js";
+import type { ApprovalReplayStore } from "../security/approval-replay.js";
 
 export class SecureDefaultPolicyEvaluator implements PolicyEvaluator {
   async evaluate(
@@ -29,8 +30,30 @@ export class SecureDefaultPolicyEvaluator implements PolicyEvaluator {
   }
 }
 
+export interface SignedApprovalPolicyEvaluatorOptions {
+  replayStore: ApprovalReplayStore;
+  now?: (() => Date) | undefined;
+  replayRetentionMs?: number | undefined;
+}
+
+const DEFAULT_REPLAY_RETENTION_MS = 24 * 60 * 60 * 1_000;
+
 export class SignedApprovalPolicyEvaluator implements PolicyEvaluator {
-  constructor(private readonly verifier: SignedApprovalVerifier) {}
+  private readonly now: () => Date;
+  private readonly replayRetentionMs: number;
+
+  constructor(
+    private readonly verifier: SignedApprovalVerifier,
+    private readonly options: SignedApprovalPolicyEvaluatorOptions,
+  ) {
+    this.now = options.now ?? (() => new Date());
+    this.replayRetentionMs =
+      options.replayRetentionMs ?? DEFAULT_REPLAY_RETENTION_MS;
+
+    if (this.replayRetentionMs <= 0) {
+      throw new Error("Approval replay retention must be positive.");
+    }
+  }
 
   async evaluate(
     tool: ToolDefinition,
@@ -77,6 +100,40 @@ export class SignedApprovalPolicyEvaluator implements PolicyEvaluator {
       return {
         outcome: "DENY",
         reason: verification.reason,
+      };
+    }
+
+    const consumedAt = this.now();
+    const expiresAt = Date.parse(verification.payload.expiresAt);
+    const retainUntil = new Date(
+      Math.max(consumedAt.getTime(), expiresAt) + this.replayRetentionMs,
+    );
+
+    try {
+      await this.options.replayStore.prune(consumedAt);
+
+      const consumed = await this.options.replayStore.consume({
+        version: "kab.approval-replay.v1",
+        nonce: verification.payload.nonce,
+        tenantId: verification.payload.tenantId,
+        installationId: verification.payload.installationId,
+        toolId: verification.payload.toolId,
+        correlationId: verification.payload.correlationId,
+        actionFingerprint: verification.payload.actionFingerprint,
+        consumedAt: consumedAt.toISOString(),
+        retainUntil: retainUntil.toISOString(),
+      });
+
+      if (!consumed) {
+        return {
+          outcome: "DENY",
+          reason: "Signed approval nonce has already been consumed.",
+        };
+      }
+    } catch {
+      return {
+        outcome: "DENY",
+        reason: "Approval replay protection is unavailable.",
       };
     }
 

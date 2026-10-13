@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   BridgeRuntime,
+  InMemoryApprovalReplayStore,
   SignedApprovalPolicyEvaluator,
   SignedApprovalVerifier,
   ToolRegistry,
@@ -62,6 +63,15 @@ function createVerifier(): SignedApprovalVerifier {
     now: () => NOW,
     resolvePublicKey: async (keyId) =>
       keyId === KEY_ID ? publicKeyPem : null,
+  });
+}
+
+function createPolicy(
+  replayStore = new InMemoryApprovalReplayStore(),
+): SignedApprovalPolicyEvaluator {
+  return new SignedApprovalPolicyEvaluator(createVerifier(), {
+    replayStore,
+    now: () => NOW,
   });
 }
 
@@ -124,10 +134,9 @@ test("expired approval is rejected", async () => {
   });
 });
 
-test("WRITE execution requires a matching signed approval", async () => {
+test("WRITE execution requires a matching signed approval and consumes it once", async () => {
   const registry = new ToolRegistry();
-  const verifier = createVerifier();
-  const policy = new SignedApprovalPolicyEvaluator(verifier);
+  const policy = createPolicy();
   let executions = 0;
 
   registry.register({
@@ -165,12 +174,20 @@ test("WRITE execution requires a matching signed approval", async () => {
 
   assert.equal(approved.status, "executed");
   assert.equal(executions, 1);
+
+  const replayed = await runtime.invoke("orders.update", approvedInput, context);
+
+  assert.equal(replayed.status, "denied");
+  if (replayed.status === "denied") {
+    assert.match(replayed.reason, /already been consumed/);
+  }
+  assert.equal(executions, 1);
 });
 
-test("explicit signed DENY remains denied", async () => {
+test("explicit signed DENY remains denied without consuming execution permission", async () => {
   const input = { orderId: 42, status: "processing" };
   const registry = new ToolRegistry();
-  const policy = new SignedApprovalPolicyEvaluator(createVerifier());
+  const policy = createPolicy();
 
   registry.register({
     id: "orders.update",

@@ -14,5 +14,6 @@ export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
 export * from "./runtime/bridge-runtime.js";
 export * from "./security/action-fingerprint.js";
+export * from "./security/approval-replay.js";
 export * from "./security/approval.js";
 export * from "./security/canonical-json.js";
