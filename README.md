@@ -30,6 +30,12 @@ Every operation is classified before execution:
 
 The bridge never logs raw secrets. Approval, policy and audit decisions are traceable by correlation ID.
 
+## Runtime model
+
+The same Agent Bridge core can be deployed as hosted, local/on-premises, hybrid or embedded packaging depending on the customer system. Runtime identity and the authoritative installation binding persist across restarts; short-lived control-session credentials remain ephemeral.
+
+Local runtimes establish outbound authenticated sessions with Kairoseth Platform, advertise readiness/capabilities, renew sessions before expiry and reconnect using bounded exponential backoff.
+
 ## Initial MVP connectors
 
 - Generic REST / Webhook
@@ -41,10 +47,18 @@ More connectors will be added through the Connector SDK.
 
 ## Repository direction
 
-The project is TypeScript-first and Node.js-based. The runtime will be container-friendly and capable of running cloud, hybrid or on-premises without requiring inbound ports for local installations.
+The project is TypeScript-first and Node.js-based. The runtime is designed to be container-friendly and capable of running hosted, hybrid or on-premises without requiring inbound ports for normal local installations.
 
-See `docs/ARCHITECTURE.md` and `docs/ROADMAP.md` once the bootstrap PR lands.
+Core documentation:
+
+- `docs/ARCHITECTURE.md`
+- `docs/ROADMAP.md`
+- `docs/RUNTIME_DEPLOYMENT.md`
+- `docs/ENROLLMENT_PROTOCOL.md`
+- `docs/CONTROL_SESSION_PROTOCOL.md`
+- `docs/SESSION_RESILIENCE.md`
+- `docs/APPROVAL_PROTOCOL.md`
 
 ## Status
 
-Bootstrap in progress.
+Phase 0 is complete. Phase 1 — Kairoseth native control channel — is in progress, with installation identity, enrollment, short-lived authenticated sessions, heartbeat/capability advertisement and runtime session resilience implemented.
