@@ -107,10 +107,62 @@ export function createWooCommerceConnector(
       version: "1.0.0",
       description:
         "Kairoseth connector for WooCommerce orders, products and stock through WC REST API v3.",
+      localizations: {
+        en: {
+          name: "WooCommerce",
+          description:
+            "Kairoseth connector for WooCommerce orders, products and stock through WC REST API v3.",
+        },
+        es: {
+          name: "WooCommerce",
+          description:
+            "Conector Kairoseth para pedidos, productos y stock de WooCommerce mediante WC REST API v3.",
+        },
+      },
       capabilities: [
         "orders.read",
         "products.read",
         "stock.read",
+      ],
+      credentials: [
+        {
+          id: "woocommerce_api",
+          kind: "basic",
+          label: "WooCommerce REST API credentials",
+          required: true,
+          localizations: {
+            en: {
+              label: "WooCommerce REST API credentials",
+              description: "Consumer key and consumer secret generated in WooCommerce REST API settings.",
+            },
+            es: {
+              label: "Credenciales de WooCommerce REST API",
+              description: "Consumer key y consumer secret generados en los ajustes de WooCommerce REST API.",
+            },
+          },
+          fields: [
+            {
+              id: "consumer_key",
+              label: "Consumer key",
+              secret: true,
+              required: true,
+              localizations: {
+                en: { label: "Consumer key" },
+                es: { label: "Consumer key" },
+              },
+            },
+            {
+              id: "consumer_secret",
+              label: "Consumer secret",
+              secret: true,
+              required: true,
+              localizations: {
+                en: { label: "Consumer secret" },
+                es: { label: "Consumer secret" },
+              },
+            },
+          ],
+        },
       ],
     },
     tools: generic.tools.map((tool) => ({
