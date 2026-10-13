@@ -1,4 +1,7 @@
-import type { ToolDefinition } from "../../core/contracts.js";
+import type {
+  SupportedLocale,
+  ToolDefinition,
+} from "../../core/contracts.js";
 import type { BridgeRuntime } from "../../runtime/bridge-runtime.js";
 import {
   McpAdapterError,
@@ -18,8 +21,26 @@ const FALLBACK_INPUT_SCHEMA: Readonly<Record<string, unknown>> = {
   additionalProperties: true,
 };
 
+const MESSAGES: Readonly<Record<SupportedLocale, Readonly<Record<string, string>>>> = {
+  en: {
+    completed: "Tool completed successfully.",
+    approvalRequired: "Approval required by Kairoseth policy.",
+    denied: "Tool invocation denied by Kairoseth policy.",
+    executionFailed: "Tool execution failed in Kairoseth Agent Bridge.",
+    nonJson: "Tool completed with a non-JSON result.",
+  },
+  es: {
+    completed: "La herramienta se ejecutó correctamente.",
+    approvalRequired: "La política de Kairoseth requiere aprobación.",
+    denied: "La política de Kairoseth ha denegado la ejecución de la herramienta.",
+    executionFailed: "La ejecución de la herramienta ha fallado en Kairoseth Agent Bridge.",
+    nonJson: "La herramienta finalizó con un resultado no JSON.",
+  },
+};
+
 export interface McpToolAdapterOptions {
   listTtlMs?: number | undefined;
+  defaultLocale?: SupportedLocale | undefined;
 }
 
 /**
@@ -28,21 +49,23 @@ export interface McpToolAdapterOptions {
  */
 export class McpToolAdapter {
   private readonly listTtlMs: number;
+  private readonly defaultLocale: SupportedLocale;
 
   constructor(
     private readonly runtime: BridgeRuntime,
     options: McpToolAdapterOptions = {},
   ) {
     this.listTtlMs = options.listTtlMs ?? 0;
+    this.defaultLocale = options.defaultLocale ?? "en";
     if (!Number.isInteger(this.listTtlMs) || this.listTtlMs < 0) {
       throw new Error("MCP tools/list ttlMs must be a non-negative integer.");
     }
   }
 
-  listTools(): McpListToolsResult {
+  listTools(locale: SupportedLocale = this.defaultLocale): McpListToolsResult {
     const tools = this.runtime.registry
       .list()
-      .map((tool) => this.describeTool(tool))
+      .map((tool) => this.describeTool(tool, locale))
       .sort((left, right) => compareToolNames(left.name, right.name));
 
     return {
@@ -52,15 +75,19 @@ export class McpToolAdapter {
     };
   }
 
-  getTool(name: string): McpToolDescriptor | null {
+  getTool(
+    name: string,
+    locale: SupportedLocale = this.defaultLocale,
+  ): McpToolDescriptor | null {
     validateMcpToolName(name);
     const tool = this.runtime.registry.get(name);
-    return tool ? this.describeTool(tool) : null;
+    return tool ? this.describeTool(tool, locale) : null;
   }
 
   async callTool(
     params: McpCallToolParams,
     invocation: McpInvocationContext,
+    locale: SupportedLocale = localeFromInvocation(invocation, this.defaultLocale),
   ): Promise<McpCallToolResult> {
     validateMcpToolName(params.name);
 
@@ -80,32 +107,36 @@ export class McpToolAdapter {
     }
 
     const result = await this.runtime.invoke(params.name, args, invocation);
+    const messages = MESSAGES[locale];
 
     switch (result.status) {
       case "executed":
-        return successfulToolResult(result.output);
+        return successfulToolResult(result.output, locale);
       case "approval_required":
         return bridgeErrorResult(
           "KAIROSETH_APPROVAL_REQUIRED",
           result.correlationId,
-          "Approval required by Kairoseth policy.",
+          messages.approvalRequired,
         );
       case "denied":
         return bridgeErrorResult(
           "KAIROSETH_DENIED",
           result.correlationId,
-          "Tool invocation denied by Kairoseth policy.",
+          messages.denied,
         );
       case "failed":
         return bridgeErrorResult(
           "KAIROSETH_EXECUTION_FAILED",
           result.correlationId,
-          "Tool execution failed in Kairoseth Agent Bridge.",
+          messages.executionFailed,
         );
     }
   }
 
-  private describeTool(tool: ToolDefinition): McpToolDescriptor {
+  private describeTool(
+    tool: ToolDefinition,
+    locale: SupportedLocale,
+  ): McpToolDescriptor {
     validateMcpToolName(tool.id);
     const inputSchema = tool.inputSchema
       ? normalizeInputSchema(tool.inputSchema, `${tool.id} inputSchema`)
@@ -113,17 +144,38 @@ export class McpToolAdapter {
     const outputSchema = tool.outputSchema
       ? normalizeSchema(tool.outputSchema, `${tool.id} outputSchema`)
       : undefined;
-    const annotations = annotationsForTool(tool);
+    const text = tool.localizations?.[locale] ?? {
+      name: tool.name,
+      description: tool.description,
+    };
+    const annotations = annotationsForTool(tool, text.name);
 
     return {
       name: tool.id,
-      title: tool.name,
-      description: tool.description,
+      title: text.name,
+      description: text.description,
       inputSchema,
       ...(outputSchema ? { outputSchema } : {}),
       annotations,
     };
   }
+}
+
+export function resolveSupportedLocale(
+  value: string | null | undefined,
+  fallback: SupportedLocale = "en",
+): SupportedLocale {
+  if (!value) return fallback;
+  const candidates = value
+    .split(",")
+    .map((item) => item.trim().split(";", 1)[0]?.toLowerCase())
+    .filter((item): item is string => Boolean(item));
+
+  for (const candidate of candidates) {
+    if (candidate === "es" || candidate.startsWith("es-")) return "es";
+    if (candidate === "en" || candidate.startsWith("en-")) return "en";
+  }
+  return fallback;
 }
 
 export function validateMcpToolName(name: string): void {
@@ -139,7 +191,17 @@ export function validateMcpToolName(name: string): void {
   }
 }
 
-function annotationsForTool(tool: ToolDefinition): McpToolAnnotations {
+function localeFromInvocation(
+  invocation: McpInvocationContext,
+  fallback: SupportedLocale,
+): SupportedLocale {
+  return resolveSupportedLocale(invocation.metadata?.locale, fallback);
+}
+
+function annotationsForTool(
+  tool: ToolDefinition,
+  title: string,
+): McpToolAnnotations {
   const readOnly = tool.risk === "READ";
   const destructive =
     tool.risk === "READ"
@@ -149,7 +211,7 @@ function annotationsForTool(tool: ToolDefinition): McpToolAnnotations {
         : (tool.hints?.destructive ?? true);
 
   return {
-    title: tool.name,
+    title,
     readOnlyHint: readOnly,
     destructiveHint: destructive,
     ...(tool.hints?.idempotent !== undefined
@@ -202,10 +264,13 @@ function normalizeSchema(
   }
 }
 
-function successfulToolResult(output: unknown): McpCallToolResult {
+function successfulToolResult(
+  output: unknown,
+  locale: SupportedLocale,
+): McpCallToolResult {
   if (output === undefined) {
     return {
-      content: [{ type: "text", text: "Tool completed successfully." }],
+      content: [{ type: "text", text: MESSAGES[locale].completed }],
     };
   }
 
@@ -218,7 +283,7 @@ function successfulToolResult(output: unknown): McpCallToolResult {
   }
 
   return {
-    content: [{ type: "text", text: safeString(output) }],
+    content: [{ type: "text", text: safeString(output, locale) }],
   };
 }
 
@@ -251,11 +316,11 @@ function renderJsonValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function safeString(value: unknown): string {
+function safeString(value: unknown, locale: SupportedLocale): string {
   try {
     return String(value);
   } catch {
-    return "Tool completed with a non-JSON result.";
+    return MESSAGES[locale].nonJson;
   }
 }
 
