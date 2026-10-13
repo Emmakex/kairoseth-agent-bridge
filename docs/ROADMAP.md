@@ -136,16 +136,23 @@ Status: **in progress**
 
 ### WooCommerce
 
+Initial surface status: **complete**
+
 - [x] Add official connector wrapper over Generic REST / Connector SDK
 - [x] Use WC REST API v3 with SecretProvider consumer key/secret
 - [x] list/get orders — READ
 - [x] list/get products and stock — READ
+- [x] update order status from a strict allowlist — WRITE
+- [x] update only allowlisted product stock fields — WRITE
+- [x] Require approval before every WooCommerce mutation under secure-default policy
+- [x] Disable automatic mutation retries while retaining intrinsic-idempotency metadata
+- [x] Reject arbitrary WooCommerce bodies, unsupported fields and unsafe values before HTTP
 - [x] Publish ES/EN titles/descriptions for tools, manifest and credential setup metadata
 - [x] Add WooCommerce READ/auth/network/stock tests
-- [x] Document WooCommerce connector READ baseline in ES/EN
-- [ ] update order metadata/status — WRITE
-- [ ] update stock/product data — WRITE
-- [ ] Add approval/idempotency acceptance coverage for WooCommerce mutations
+- [x] Add WooCommerce WRITE approval/payload/idempotency tests
+- [x] Document WooCommerce connector READ/WRITE baseline in ES/EN
+
+Optional future WooCommerce expansion must add separate allowlisted tools rather than a generic product/order update endpoint.
 
 Deployment may use a WordPress/WooCommerce connector plugin, hosted runtime, or lightweight local runtime according to the target hosting environment.
 
