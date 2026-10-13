@@ -44,7 +44,7 @@ export class BridgeRuntime {
 
     await this.emit(tool, context, "INVOCATION_RECEIVED");
 
-    const decision = await this.policy.evaluate(tool, context);
+    const decision = await this.policy.evaluate(tool, input, context);
     await this.audit.emit({
       ...this.baseEvent(tool, context),
       type: "POLICY_EVALUATED",

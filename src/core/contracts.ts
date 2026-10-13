@@ -27,6 +27,7 @@ export interface PolicyDecision {
 export interface PolicyEvaluator {
   evaluate(
     tool: ToolDefinition,
+    input: unknown,
     context: InvocationContext,
   ): Promise<PolicyDecision>;
 }
