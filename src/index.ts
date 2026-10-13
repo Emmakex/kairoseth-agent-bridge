@@ -1,3 +1,4 @@
+export * from "./control-channel/approval-key-sync.js";
 export * from "./control-channel/command-delivery.js";
 export * from "./control-channel/command-receipts.js";
 export * from "./control-channel/command.js";
@@ -14,6 +15,7 @@ export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
 export * from "./runtime/bridge-runtime.js";
 export * from "./security/action-fingerprint.js";
+export * from "./security/approval-keys.js";
 export * from "./security/approval-replay.js";
 export * from "./security/approval.js";
 export * from "./security/canonical-json.js";
