@@ -16,7 +16,10 @@ import {
 
 import type { InvocationContext } from "../../core/contracts.js";
 import { McpToolAdapter } from "./adapter.js";
-import { McpAdapterError } from "./contracts.js";
+import {
+  McpAdapterError,
+  type McpToolDescriptor,
+} from "./contracts.js";
 
 export type McpTransportKind = "http" | "stdio";
 export type McpProtocolEra = "modern" | "legacy";
@@ -124,7 +127,7 @@ export function createKairosethMcpSdkServer(
           invocation,
         );
 
-        return result as CallToolResult;
+        return result as unknown as CallToolResult;
       } catch (error) {
         if (error instanceof McpAdapterError) {
           throw new ProtocolError(
@@ -150,8 +153,7 @@ export function createKairosethMcpHttpHandler(
   }
 
   return createMcpHandler(
-    (context) =>
-      createKairosethMcpSdkServer(options, context.era),
+    (context) => createKairosethMcpSdkServer(options, context.era),
     {
       legacy: options.legacy ?? "reject",
       responseMode: "json",
@@ -169,10 +171,8 @@ export function serveKairosethMcpStdio(
   );
 }
 
-function toSdkTool(tool: ReturnType<McpToolAdapter["getTool"]> extends infer _T
-  ? NonNullable<ReturnType<McpToolAdapter["getTool"]>>
-  : never): Tool {
-  const sdkTool: Tool = {
+function toSdkTool(tool: McpToolDescriptor): Tool {
+  return {
     name: tool.name,
     ...(tool.title ? { title: tool.title } : {}),
     ...(tool.description ? { description: tool.description } : {}),
@@ -184,5 +184,4 @@ function toSdkTool(tool: ReturnType<McpToolAdapter["getTool"]> extends infer _T
       ? { annotations: tool.annotations as Tool["annotations"] }
       : {}),
   };
-  return sdkTool;
 }
