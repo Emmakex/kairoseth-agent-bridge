@@ -66,7 +66,7 @@ Exit condition achieved: an enrolled local bridge establishes an outbound authen
 
 ## Phase 2 — Connector SDK + Generic REST/Webhook
 
-Status: **in progress**
+Status: **complete**
 
 - [x] Extract Connector SDK contracts
 - [x] Add JSON-Schema-compatible config/input/output descriptors
@@ -88,13 +88,19 @@ Status: **in progress**
 - [x] Add Generic REST health probe contract
 - [x] Add Connector SDK + Generic REST acceptance scenario through BridgeRuntime policy/audit
 - [x] Document Generic REST connector v1
-- [ ] Implement webhook trigger/output adapter
-- [ ] Add webhook authentication/signature verification and replay controls
-- [ ] Add Phase 2 end-to-end REST + Webhook acceptance scenario
+- [x] Implement webhook trigger/output adapter without embedding an HTTP server
+- [x] Add HMAC/Bearer webhook authentication, timestamp validation and persistent nonce replay controls
+- [x] Add deterministic normalized webhook events and durable idempotent event outbox
+- [x] Add webhook payload bounds and pre-output redaction
+- [x] Preserve outbound-only default by keeping ingress in deployment adapters
+- [x] Add Phase 2 end-to-end REST + Webhook acceptance scenario
+- [x] Document Webhook Adapter v1
 
-Exit condition: external SaaS/custom HTTP APIs and authenticated webhook events can be exposed through normalized Bridge contracts without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
+Exit condition achieved: external SaaS/custom HTTP APIs and authenticated webhook events can be exposed through normalized Bridge contracts without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
 
 ## Phase 3 — MCP
+
+Status: **not started**
 
 - [ ] Implement MCP server adapter over the normalized registry
 - [ ] Map tool schemas and descriptions
