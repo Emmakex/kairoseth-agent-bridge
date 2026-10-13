@@ -11,6 +11,7 @@ export * from "./connectors/sdk/validation.js";
 export * from "./connectors/webhook/adapter.js";
 export * from "./connectors/webhook/contracts.js";
 export * from "./connectors/webhook/errors.js";
+export * from "./connectors/webhook/outbox.js";
 export * from "./connectors/webhook/replay.js";
 export * from "./control-channel/approval-key-sync.js";
 export * from "./control-channel/audit-delivery.js";
