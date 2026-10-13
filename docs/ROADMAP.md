@@ -100,15 +100,25 @@ Exit condition achieved: external SaaS/custom HTTP APIs and authenticated webhoo
 
 ## Phase 3 — MCP
 
-Status: **not started**
+Status: **in progress**
 
-- [ ] Implement MCP server adapter over the normalized registry
-- [ ] Map tool schemas and descriptions
-- [ ] Preserve risk metadata internally
-- [ ] Route mutating MCP tool calls through the same approval engine
-- [ ] Add MCP interoperability tests
+- [x] Add protocol-neutral discovery metadata to core ToolDefinition
+- [x] Preserve Connector SDK input/output schemas and execution hints in ToolRegistry
+- [x] Implement MCP tool discovery adapter over ToolRegistry
+- [x] Add deterministic MCP tool ordering and conservative private cache hints
+- [x] Map READ / WRITE / CRITICAL into descriptive MCP annotations without using hints as authority
+- [x] Route MCP tool calls through BridgeRuntime instead of direct tool execution
+- [x] Map executed / approval-required / denied / failed Bridge results to MCP tool results
+- [x] Add MCP adapter policy/security unit tests
+- [x] Document MCP adapter security boundary
+- [ ] Bind adapter to official MCP TypeScript SDK v2
+- [ ] Add modern Streamable HTTP transport
+- [ ] Add stdio transport for local/dev interoperability
+- [ ] Map transport errors and authenticated Kairoseth InvocationContext
+- [ ] Add interoperability tests with an MCP SDK client
+- [ ] Add Phase 3 end-to-end acceptance scenario
 
-Exit condition: an MCP-compatible agent can discover and invoke Agent Bridge tools without bypassing Kairoseth policy.
+Exit condition: an MCP-compatible agent can discover and invoke Agent Bridge tools through supported MCP transports without bypassing Kairoseth identity, policy, approvals or audit.
 
 ## Phase 4 — First business connectors
 

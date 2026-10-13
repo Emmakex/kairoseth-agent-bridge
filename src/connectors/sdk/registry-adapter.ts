@@ -58,11 +58,19 @@ export class ConnectorRegistryAdapter {
         tool.id,
       );
 
+      const idempotencyMode = tool.behavior?.idempotency?.mode ?? "none";
       const bridgeTool: ToolDefinition = {
         id: runtimeToolId,
         name: tool.name,
         description: tool.description,
         risk: tool.risk,
+        inputSchema: tool.inputSchema,
+        ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+        hints: {
+          ...(idempotencyMode !== "none" ? { idempotent: true } : {}),
+          ...(tool.risk === "CRITICAL" ? { destructive: true } : {}),
+          openWorld: true,
+        },
         execute: (input, invocation) =>
           this.executeTool(instance, tool, input, invocation),
       };
