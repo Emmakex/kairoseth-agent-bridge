@@ -66,18 +66,27 @@ Exit condition achieved: an enrolled local bridge establishes an outbound authen
 
 ## Phase 2 — Connector SDK + Generic REST/Webhook
 
-Status: **next**
+Status: **in progress**
 
-- [ ] Extract Connector SDK
-- [ ] Add JSON-schema-style input/output descriptors
-- [ ] Add connector capability manifest
-- [ ] Add secret requirement descriptors without exposing values
-- [ ] Add timeout, retry and idempotency hooks
+- [x] Extract Connector SDK contracts
+- [x] Add JSON-Schema-compatible config/input/output descriptors
+- [x] Add connector capability manifest
+- [x] Add secret requirement descriptors without exposing values
+- [x] Add secret-provider runtime abstraction
+- [x] Add instance-scoped tool registration into the core ToolRegistry
+- [x] Preserve READ / WRITE / CRITICAL risk through connector registration
+- [x] Add bounded tool timeout and abort signal
+- [x] Add explicit transient-error retry hooks
+- [x] Require declared idempotency before automatic WRITE/CRITICAL retry
+- [x] Add optional connector health contract
+- [x] Document Connector SDK v1
 - [ ] Implement Generic REST connector
+- [ ] Add Generic REST authentication mappings through SecretProvider
+- [ ] Add request/response mapping and response redaction rules
 - [ ] Implement webhook trigger/output adapter
-- [ ] Add response redaction rules
+- [ ] Add Connector SDK + Generic REST acceptance scenario
 
-Exit condition: an external SaaS API can be exposed as normalized bridge tools without custom runtime code.
+Exit condition: an external SaaS/custom HTTP API can be exposed as normalized bridge tools without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
 
 ## Phase 3 — MCP
 
