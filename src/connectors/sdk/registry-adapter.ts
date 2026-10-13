@@ -63,6 +63,7 @@ export class ConnectorRegistryAdapter {
         id: runtimeToolId,
         name: tool.name,
         description: tool.description,
+        ...(tool.localizations ? { localizations: tool.localizations } : {}),
         risk: tool.risk,
         inputSchema: tool.inputSchema,
         ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
