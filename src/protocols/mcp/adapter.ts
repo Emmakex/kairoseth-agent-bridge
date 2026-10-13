@@ -108,7 +108,7 @@ export class McpToolAdapter {
   private describeTool(tool: ToolDefinition): McpToolDescriptor {
     validateMcpToolName(tool.id);
     const inputSchema = tool.inputSchema
-      ? normalizeSchema(tool.inputSchema, `${tool.id} inputSchema`)
+      ? normalizeInputSchema(tool.inputSchema, `${tool.id} inputSchema`)
       : structuredClone(FALLBACK_INPUT_SCHEMA);
     const outputSchema = tool.outputSchema
       ? normalizeSchema(tool.outputSchema, `${tool.id} outputSchema`)
@@ -159,6 +159,20 @@ function annotationsForTool(tool: ToolDefinition): McpToolAnnotations {
       ? { openWorldHint: tool.hints.openWorld }
       : {}),
   };
+}
+
+function normalizeInputSchema(
+  schema: object,
+  label: string,
+): Readonly<Record<string, unknown>> {
+  const normalized = normalizeSchema(schema, label);
+  if (normalized.type !== "object") {
+    throw new McpAdapterError(
+      "INVALID_ARGUMENTS",
+      `${label} root type must be object because MCP tool arguments are an object.`,
+    );
+  }
+  return normalized;
 }
 
 function normalizeSchema(
