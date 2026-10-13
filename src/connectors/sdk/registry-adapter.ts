@@ -1,6 +1,7 @@
 import type { ToolRegistry } from "../../core/registry.js";
 import type { InvocationContext, ToolDefinition } from "../../core/contracts.js";
 import {
+  ConnectorError,
   ConnectorTimeoutError,
   ConnectorTransientError,
 } from "./errors.js";
@@ -124,6 +125,7 @@ export class ConnectorRegistryAdapter {
   ): Promise<unknown> {
     const timeoutMs = tool.behavior?.timeoutMs ?? this.defaultToolTimeoutMs;
     const retry = normalizeRetry(tool.behavior?.retry);
+    const idempotencyKey = deriveIdempotencyKey(tool, input);
     let attempt = 1;
 
     while (true) {
@@ -134,6 +136,8 @@ export class ConnectorRegistryAdapter {
           input,
           invocation,
           timeoutMs,
+          attempt,
+          idempotencyKey,
         );
       } catch (error) {
         const shouldRetry =
@@ -158,6 +162,8 @@ export class ConnectorRegistryAdapter {
     input: unknown,
     invocation: InvocationContext,
     timeoutMs: number,
+    attempt: number,
+    idempotencyKey: string | undefined,
   ): Promise<unknown> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -178,6 +184,8 @@ export class ConnectorRegistryAdapter {
           config: instance.config ?? {},
           secrets: instance.secrets,
           signal: controller.signal,
+          attempt,
+          idempotencyKey,
         }),
         timeoutPromise,
       ]);
@@ -219,6 +227,66 @@ function retryDelayMs(retry: NormalizedRetryPolicy, failedAttempt: number): numb
     retry.maxDelayMs,
     retry.baseDelayMs * 2 ** Math.max(0, failedAttempt - 1),
   );
+}
+
+function deriveIdempotencyKey(
+  tool: ConnectorToolDefinition,
+  input: unknown,
+): string | undefined {
+  const policy = tool.behavior?.idempotency;
+
+  if (!policy || policy.mode !== "keyed") {
+    return undefined;
+  }
+
+  const path = policy.keyField;
+  if (!path) {
+    throw new ConnectorError(
+      `Connector tool ${tool.id} is missing its keyed idempotency field.`,
+    );
+  }
+
+  const value = readPath(input, path);
+
+  if (
+    value === null ||
+    value === undefined ||
+    (typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean")
+  ) {
+    throw new ConnectorError(
+      `Connector tool ${tool.id} requires scalar idempotency field: ${path}`,
+    );
+  }
+
+  const key = String(value).trim();
+  if (!key) {
+    throw new ConnectorError(
+      `Connector tool ${tool.id} requires non-empty idempotency field: ${path}`,
+    );
+  }
+
+  return key;
+}
+
+function readPath(value: unknown, path: string): unknown {
+  let current = value;
+
+  for (const segment of path.split(".")) {
+    if (
+      current === null ||
+      typeof current !== "object" ||
+      Array.isArray(current) ||
+      !Object.prototype.hasOwnProperty.call(current, segment)
+    ) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return current;
 }
 
 function validateTimeout(value: number, label: string): void {
