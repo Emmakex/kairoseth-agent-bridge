@@ -13,6 +13,7 @@ export * from "./connectors/webhook/contracts.js";
 export * from "./connectors/webhook/errors.js";
 export * from "./connectors/webhook/outbox.js";
 export * from "./connectors/webhook/replay.js";
+export * from "./connectors/woocommerce/connector.js";
 export * from "./control-channel/approval-key-sync.js";
 export * from "./control-channel/audit-delivery.js";
 export * from "./control-channel/command-delivery.js";

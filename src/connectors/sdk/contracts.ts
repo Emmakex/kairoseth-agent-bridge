@@ -1,6 +1,7 @@
 import type {
   InvocationContext,
   RiskLevel,
+  SupportedLocale,
   ToolLocalizations,
 } from "../../core/contracts.js";
 
@@ -50,12 +51,23 @@ export type ConnectorCredentialKind =
   | "certificate"
   | "custom";
 
+export interface ConnectorLocalizedLabelText {
+  label: string;
+  description?: string | undefined;
+}
+
+export type ConnectorLabelLocalizations = Partial<
+  Readonly<Record<SupportedLocale, ConnectorLocalizedLabelText>>
+>;
+
 export interface ConnectorCredentialField {
   id: string;
   label: string;
   secret: boolean;
   required: boolean;
   description?: string | undefined;
+  /** Optional ES/EN setup labels/descriptions. */
+  localizations?: ConnectorLabelLocalizations | undefined;
 }
 
 export interface ConnectorCredentialRequirement {
@@ -64,6 +76,8 @@ export interface ConnectorCredentialRequirement {
   label: string;
   required: boolean;
   description?: string | undefined;
+  /** Optional ES/EN setup labels/descriptions. */
+  localizations?: ConnectorLabelLocalizations | undefined;
   fields: readonly ConnectorCredentialField[];
 }
 
@@ -126,6 +140,8 @@ export interface ConnectorManifest {
   name: string;
   version: string;
   description: string;
+  /** Optional ES/EN connector name/description for setup and discovery UIs. */
+  localizations?: ToolLocalizations | undefined;
   capabilities: readonly string[];
   /** Non-secret connector instance configuration only. */
   configSchema?: JsonSchema | undefined;
