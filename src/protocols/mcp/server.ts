@@ -14,8 +14,14 @@ import {
   type StdioServerHandle,
 } from "@modelcontextprotocol/server/stdio";
 
-import type { InvocationContext } from "../../core/contracts.js";
-import { McpToolAdapter } from "./adapter.js";
+import type {
+  InvocationContext,
+  SupportedLocale,
+} from "../../core/contracts.js";
+import {
+  McpToolAdapter,
+  resolveSupportedLocale,
+} from "./adapter.js";
 import {
   McpAdapterError,
   type McpToolDescriptor,
@@ -55,6 +61,8 @@ export interface KairosethMcpServerOptions {
   adapter: McpToolAdapter;
   resolveInvocation: KairosethMcpInvocationResolver;
   serverInfo?: KairosethMcpServerInfo | undefined;
+  /** Default discovery/result language. HTTP Accept-Language may select ES/EN per request. */
+  defaultLocale?: SupportedLocale | undefined;
 }
 
 export interface KairosethMcpHttpOptions extends KairosethMcpServerOptions {
@@ -69,7 +77,6 @@ const DEFAULT_SERVER_INFO = {
   name: "kairoseth-agent-bridge",
   title: "Kairoseth Agent Bridge",
   version: "0.1.0",
-  description: "Policy-gated Kairoseth business-system tools over MCP.",
 } as const;
 
 const DEFAULT_MCP_BODY_LIMIT = 1024 * 1024;
@@ -77,13 +84,14 @@ const DEFAULT_MCP_BODY_LIMIT = 1024 * 1024;
 export function createKairosethMcpSdkServer(
   options: KairosethMcpServerOptions,
   era: McpProtocolEra,
+  locale: SupportedLocale = options.defaultLocale ?? "en",
 ): Server {
   const info = {
     name: options.serverInfo?.name ?? DEFAULT_SERVER_INFO.name,
     title: options.serverInfo?.title ?? DEFAULT_SERVER_INFO.title,
     version: options.serverInfo?.version ?? DEFAULT_SERVER_INFO.version,
     description:
-      options.serverInfo?.description ?? DEFAULT_SERVER_INFO.description,
+      options.serverInfo?.description ?? defaultServerDescription(locale),
   };
 
   const server = new Server(info, {
@@ -93,7 +101,7 @@ export function createKairosethMcpSdkServer(
   server.setRequestHandler(
     "tools/list",
     async (): Promise<ListToolsResult> => ({
-      tools: options.adapter.listTools().tools.map(toSdkTool),
+      tools: options.adapter.listTools(locale).tools.map(toSdkTool),
     }),
   );
 
@@ -125,6 +133,7 @@ export function createKairosethMcpSdkServer(
               : {}),
           },
           invocation,
+          locale,
         );
 
         return result as unknown as CallToolResult;
@@ -153,7 +162,13 @@ export function createKairosethMcpHttpHandler(
   }
 
   return createMcpHandler(
-    (context) => createKairosethMcpSdkServer(options, context.era),
+    (context) => {
+      const locale = resolveSupportedLocale(
+        context.requestInfo?.headers.get("accept-language"),
+        options.defaultLocale ?? "en",
+      );
+      return createKairosethMcpSdkServer(options, context.era, locale);
+    },
     {
       legacy: options.legacy ?? "reject",
       responseMode: "json",
@@ -167,8 +182,18 @@ export function serveKairosethMcpStdio(
   options: KairosethMcpServerOptions,
 ): StdioServerHandle {
   return serveStdio((context) =>
-    createKairosethMcpSdkServer(options, context.era),
+    createKairosethMcpSdkServer(
+      options,
+      context.era,
+      options.defaultLocale ?? "en",
+    ),
   );
+}
+
+function defaultServerDescription(locale: SupportedLocale): string {
+  return locale === "es"
+    ? "Herramientas de sistemas empresariales de Kairoseth protegidas por políticas y aprobaciones mediante MCP."
+    : "Policy- and approval-gated Kairoseth business-system tools over MCP.";
 }
 
 function toSdkTool(tool: McpToolDescriptor): Tool {
