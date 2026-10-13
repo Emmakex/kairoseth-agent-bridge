@@ -5,6 +5,7 @@ import type {
   StoredBridgeIdentity,
 } from "../identity/installation-identity.js";
 import type { SignedRegistrationProof } from "../identity/registration-proof.js";
+import type { InstallationBindingStore } from "./installation-binding.js";
 
 export interface EnrollmentChallenge {
   version: "kab.enrollment-challenge.v1";
@@ -41,6 +42,7 @@ export interface InstallationEnrollmentOptions {
   runtimeVersion: string;
   deploymentMode: RuntimeDeploymentMode;
   capabilities?: readonly string[];
+  bindingStore?: InstallationBindingStore | undefined;
   now?: () => Date;
 }
 
@@ -74,6 +76,10 @@ export class InstallationEnrollmentClient {
 
     const binding = await this.transport.register(enrollmentToken, proof);
     this.validateBinding(identity, binding);
+
+    if (this.options.bindingStore) {
+      await this.options.bindingStore.save(binding);
+    }
 
     return binding;
   }
