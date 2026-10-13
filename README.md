@@ -44,6 +44,12 @@ Phase 2 introduces the shared Connector SDK used by REST APIs, WooCommerce, Pres
 
 Connector definitions declare capabilities, non-secret configuration schemas, credential requirements, normalized tools, risk, input/output schemas, health checks and safe timeout/retry/idempotency behavior. Credential values are obtained only at execution time through a secret-provider abstraction.
 
+## Generic REST
+
+The first Connector SDK implementation maps predeclared REST operations into Bridge tools. It supports Bearer/Basic/API-key authentication through `ConnectorSecretProvider`, controlled path/query/body mapping, response-size bounds and sensitive response-field redaction.
+
+By default Generic REST requires HTTPS, blocks local/private destinations, never follows redirects and keeps `baseUrl` outside agent-controlled tool input. Controlled on-premise deployments can explicitly enable HTTP/private-network access.
+
 ## Initial MVP connectors
 
 - Generic REST / Webhook
@@ -70,7 +76,8 @@ Core documentation:
 - `docs/APPROVAL_KEY_ROTATION.md`
 - `docs/AUDIT_DELIVERY_PROTOCOL.md`
 - `docs/CONNECTOR_SDK.md`
+- `docs/GENERIC_REST_CONNECTOR.md`
 
 ## Status
 
-Phase 0 and Phase 1 are complete. Phase 2 — Connector SDK + Generic REST/Webhook — is in progress; the Connector SDK foundation is implemented and Generic REST is next.
+Phase 0 and Phase 1 are complete. Phase 2 — Connector SDK + Generic REST/Webhook — is in progress; Connector SDK and Generic REST are implemented, and the Webhook adapter is next.
