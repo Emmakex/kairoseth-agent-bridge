@@ -101,6 +101,10 @@ export class ApprovalKeySetManager {
   ) {
     this.now = options.now ?? (() => new Date());
     this.maxClockSkewMs = options.maxClockSkewMs ?? 30_000;
+
+    if (this.maxClockSkewMs < 0) {
+      throw new Error("Approval keyset clock skew cannot be negative.");
+    }
   }
 
   async getOrBootstrap(): Promise<ApprovalKeySetState> {
@@ -108,6 +112,7 @@ export class ApprovalKeySetManager {
 
     if (stored) {
       this.validateStateScope(stored);
+      this.validateStateMetadata(stored);
       this.validateKeys(stored.keys);
       return stored;
     }
@@ -223,6 +228,16 @@ export class ApprovalKeySetManager {
     }
   }
 
+  private validateStateMetadata(state: ApprovalKeySetState): void {
+    if (!Number.isInteger(state.generation) || state.generation < 0) {
+      throw new Error("Persisted approval keyset generation is invalid.");
+    }
+
+    if (!Number.isFinite(Date.parse(state.updatedAt))) {
+      throw new Error("Persisted approval keyset timestamp is invalid.");
+    }
+  }
+
   private validateKeys(keys: readonly TrustedApprovalKey[]): void {
     if (keys.length === 0) {
       throw new Error("Approval keyset must contain at least one key.");
@@ -236,7 +251,12 @@ export class ApprovalKeySetManager {
       }
 
       ids.add(key.keyId);
-      createPublicKey(key.publicKeyPem);
+
+      try {
+        createPublicKey(key.publicKeyPem);
+      } catch {
+        throw new Error("Approval keyset contains an invalid public key.");
+      }
 
       if (key.notBefore && !Number.isFinite(Date.parse(key.notBefore))) {
         throw new Error("Approval key notBefore is invalid.");
@@ -264,7 +284,7 @@ export function isKeyActive(key: TrustedApprovalKey, now: Date): boolean {
     return false;
   }
 
-  if (key.notAfter && Date.parse(key.notAfter) < timestamp) {
+  if (key.notAfter && Date.parse(key.notAfter) <= timestamp) {
     return false;
   }
 
