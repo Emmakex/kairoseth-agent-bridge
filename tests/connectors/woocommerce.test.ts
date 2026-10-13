@@ -25,17 +25,21 @@ function secretProvider() {
   };
 }
 
-test("WooCommerce connector exposes READ-only orders/products tools with ES/EN discovery", () => {
+test("WooCommerce connector exposes four READ and two WRITE tools with ES/EN discovery", () => {
   const connector = createWooCommerceConnector();
 
   assert.equal(connector.manifest.id, "woocommerce");
   assert.deepEqual(connector.manifest.capabilities, [
     "orders.read",
+    "orders.write",
     "products.read",
+    "products.write",
     "stock.read",
+    "stock.write",
   ]);
-  assert.equal(connector.tools.length, 4);
-  assert.ok(connector.tools.every((tool) => tool.risk === "READ"));
+  assert.equal(connector.tools.length, 6);
+  assert.equal(connector.tools.filter((tool) => tool.risk === "READ").length, 4);
+  assert.equal(connector.tools.filter((tool) => tool.risk === "WRITE").length, 2);
 
   const registry = new ToolRegistry();
   const instance: ConnectorInstance = {
