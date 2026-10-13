@@ -76,7 +76,8 @@ async function enqueueOne(outbox: InMemoryAuditOutboxStore | FileAuditOutboxStor
   );
 
   await sink.emit(sourceEvent("safe message"));
-  return (await outbox.peek(1))[0]!.eventId;
+  const size = await outbox.size();
+  return (await outbox.peek(size))[size - 1]!.eventId;
 }
 
 test("audit message sanitizer redacts common secret forms before persistence", async () => {
