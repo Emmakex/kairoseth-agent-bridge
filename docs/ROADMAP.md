@@ -48,12 +48,14 @@ Status: **in progress**
 - [x] Add heartbeat, readiness and capability advertisement contract
 - [x] Add automatic session renewal before expiry
 - [x] Add reconnect/backoff behavior with bounded jitter
-- [ ] Add durable command delivery + acknowledgement contract
+- [x] Add durable command delivery + acknowledgement contract
+- [x] Add command-level crash-safe deduplication with two-phase receipts
 - [ ] Add sanitized audit event delivery over the control channel
 - [x] Document adaptive runtime deployment model
 - [x] Document installation enrollment protocol v1
 - [x] Document outbound control session protocol v1
 - [x] Document runtime state persistence and session resilience
+- [x] Document command delivery protocol v1
 
 Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation exactly once according to policy.
 
