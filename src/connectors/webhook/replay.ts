@@ -7,6 +7,7 @@ export interface WebhookReplayRecord {
   webhookId: string;
   nonce: string;
   sourceTimestamp: string;
+  payloadFingerprint: string;
   consumedAt: string;
   retainUntil: string;
 }
