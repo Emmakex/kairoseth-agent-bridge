@@ -7,6 +7,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function compareKeys(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
+}
+
 export function canonicalJson(value: unknown): string {
   if (value === null) {
     return "null";
@@ -35,7 +47,7 @@ export function canonicalJson(value: unknown): string {
   if (isPlainObject(value)) {
     const entries = Object.entries(value)
       .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right));
+      .sort(([left], [right]) => compareKeys(left, right));
 
     return `{${entries
       .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`)
