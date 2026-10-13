@@ -117,6 +117,9 @@ export interface ConnectorManifest {
   version: string;
   description: string;
   capabilities: readonly string[];
+  /** Non-secret connector instance configuration only. */
+  configSchema?: JsonSchema | undefined;
+  /** Credential metadata only; never credential values. */
   credentials: readonly ConnectorCredentialRequirement[];
 }
 
