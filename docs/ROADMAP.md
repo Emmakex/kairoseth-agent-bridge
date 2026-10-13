@@ -30,18 +30,22 @@ Exit condition achieved: a read-only tool executes end-to-end; mutating tools ca
 
 Status: **in progress**
 
-- [ ] Define bridge identity and installation registration contract
-- [ ] Define outbound-only session lifecycle
-- [ ] Add tenant + installation scoping to the control channel
+- [x] Define persistent Ed25519 bridge identity
+- [x] Define challenge-based installation registration contract
+- [x] Ensure tenant + installation binding is assigned by Kairoseth Platform, not self-asserted by the runtime
+- [x] Add signed runtime registration proof and key-possession verification helper
+- [ ] Persist authoritative installation binding in production runtime storage
+- [ ] Define outbound-only authenticated session lifecycle
 - [ ] Add short-lived authenticated bridge credentials
 - [x] Add signed approval decision verifier
 - [x] Bind approval to tenant, installation, tool, correlation ID and exact action fingerprint
 - [ ] Add replay/idempotency enforcement for approval nonce
-- [ ] Add trusted public-key bootstrap / rotation channel
+- [ ] Complete trusted public-key bootstrap / rotation channel
 - [ ] Add heartbeat, readiness and capability advertisement
 - [ ] Add reconnect/backoff behavior
 - [ ] Add sanitized audit event delivery
 - [x] Document adaptive runtime deployment model
+- [x] Document installation enrollment protocol v1
 
 Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation exactly once according to policy.
 
