@@ -103,6 +103,10 @@ function parsePayload(value: unknown): ApprovalPayload | null {
 }
 
 function parseToken(token: string): ParsedApprovalToken | null {
+  if (token.length === 0 || token.length > 16_384) {
+    return null;
+  }
+
   const segments = token.split(".");
 
   if (segments.length !== 4 || segments[0] !== "kab1") {
@@ -157,7 +161,13 @@ export class SignedApprovalVerifier {
       return { valid: false, reason: "Malformed approval token." };
     }
 
-    const publicKey = await this.resolvePublicKey(parsed.keyId);
+    let publicKey: string | Buffer | null;
+
+    try {
+      publicKey = await this.resolvePublicKey(parsed.keyId);
+    } catch {
+      return { valid: false, reason: "Approval signing key lookup failed." };
+    }
 
     if (!publicKey) {
       return { valid: false, reason: "Unknown approval signing key." };
