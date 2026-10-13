@@ -8,6 +8,14 @@ The roadmap favors small verifiable slices. Each phase must keep the control-pla
 
 Agent Bridge is managed from the existing Kairoseth Platform at `kairoseth.com`; runtime placement adapts to the customer system. See `docs/RUNTIME_DEPLOYMENT.md`.
 
+## Cross-cutting product rules
+
+- [x] ES/EN is the product language contract for user/agent-facing descriptive text
+- [x] Technical IDs, protocol fields and security decisions remain locale-independent
+- [x] Tool/connector localization is defined once in core contracts and reused by protocol adapters
+
+See `docs/I18N.md`.
+
 ## Phase 0 — Bootstrap and contracts
 
 Status: **complete**
@@ -100,7 +108,7 @@ Exit condition achieved: external SaaS/custom HTTP APIs and authenticated webhoo
 
 ## Phase 3 — MCP
 
-Status: **in progress**
+Status: **complete**
 
 - [x] Add protocol-neutral discovery metadata to core ToolDefinition
 - [x] Preserve Connector SDK input/output schemas and execution hints in ToolRegistry
@@ -111,16 +119,20 @@ Status: **in progress**
 - [x] Map executed / approval-required / denied / failed Bridge results to MCP tool results
 - [x] Add MCP adapter policy/security unit tests
 - [x] Document MCP adapter security boundary
-- [ ] Bind adapter to official MCP TypeScript SDK v2
-- [ ] Add modern Streamable HTTP transport
-- [ ] Add stdio transport for local/dev interoperability
-- [ ] Map transport errors and authenticated Kairoseth InvocationContext
-- [ ] Add interoperability tests with an MCP SDK client
-- [ ] Add Phase 3 end-to-end acceptance scenario
+- [x] Bind adapter to official MCP TypeScript SDK v2
+- [x] Add modern Streamable HTTP transport for MCP 2026-07-28
+- [x] Add stdio transport for local/dev interoperability
+- [x] Map verified transport auth into authenticated Kairoseth InvocationContext
+- [x] Reject legacy MCP by default, with explicit stateless opt-in only
+- [x] Add ES/EN discovery and safe result localization without localizing technical IDs
+- [x] Add interoperability tests with the official MCP SDK client
+- [x] Add Phase 3 end-to-end acceptance scenario covering identity, policy and audit
 
-Exit condition: an MCP-compatible agent can discover and invoke Agent Bridge tools through supported MCP transports without bypassing Kairoseth identity, policy, approvals or audit.
+Exit condition achieved: an MCP-compatible agent can discover and invoke Agent Bridge tools through supported MCP transports without bypassing Kairoseth identity, policy, approvals or audit.
 
 ## Phase 4 — First business connectors
+
+Status: **not started**
 
 ### WooCommerce
 
@@ -130,6 +142,7 @@ Initial tool set:
 - [ ] list/get products and stock — READ
 - [ ] update order metadata/status — WRITE
 - [ ] update stock/product data — WRITE
+- [ ] publish ES/EN titles and descriptions for all official tools
 
 Deployment may use a WordPress/WooCommerce connector plugin, hosted runtime, or lightweight local runtime according to the target hosting environment.
 
@@ -140,6 +153,7 @@ Initial direction:
 - [ ] native module/connector
 - [ ] normalized product/order/customer tools
 - [ ] sidecar/local runtime support when local access is required
+- [ ] publish ES/EN titles and descriptions for all official tools
 
 ### MySQL
 
@@ -162,6 +176,7 @@ Initial model:
 - [ ] hosted API connector path for SaaS systems
 - [ ] local runtime path for on-premise systems
 - [ ] REST/Webhook/SDK adapter path for proprietary software
+- [ ] ES/EN descriptive metadata for official Kairoseth adapters
 
 Exit condition: the first Kairoseth products can consume real business-system connectors through the same bridge contract regardless of deployment mode.
 
@@ -172,6 +187,7 @@ Exit condition: the first Kairoseth products can consume real business-system co
 - [ ] Add delegated authorization model
 - [ ] Add invocation provenance
 - [ ] Add cross-agent correlation and audit
+- [ ] Reuse the core ES/EN localization contract for A2A discovery metadata
 
 Exit condition: MCP, A2A and Kairoseth-native callers share one execution and policy core.
 
@@ -193,6 +209,7 @@ Exit condition: MCP, A2A and Kairoseth-native callers share one execution and po
 - [ ] Linux service packaging
 - [ ] Windows service packaging
 - [ ] Observability dashboards in Kairoseth Platform
+- [ ] ES/EN installer/operator-facing surfaces
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations.
 
@@ -221,4 +238,4 @@ Maintain one shared Agent Bridge core and package/adapt it for the target enviro
 - PrestaShop connector;
 - Connector SDK/custom adapter.
 
-All variants must preserve the same identity, policy, signed approval, audit and normalized-tool contracts.
+All variants must preserve the same identity, policy, signed approval, audit, normalized-tool and ES/EN localization contracts.
