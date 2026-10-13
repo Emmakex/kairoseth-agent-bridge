@@ -1,4 +1,6 @@
 export * from "./control-channel/enrollment.js";
+export * from "./control-channel/session.js";
+export * from "./control-channel/session-proof.js";
 export * from "./core/audit.js";
 export * from "./core/contracts.js";
 export * from "./core/policy.js";
