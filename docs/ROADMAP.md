@@ -80,13 +80,19 @@ Status: **in progress**
 - [x] Require declared idempotency before automatic WRITE/CRITICAL retry
 - [x] Add optional connector health contract
 - [x] Document Connector SDK v1
-- [ ] Implement Generic REST connector
-- [ ] Add Generic REST authentication mappings through SecretProvider
-- [ ] Add request/response mapping and response redaction rules
+- [x] Implement Generic REST connector
+- [x] Add Generic REST authentication mappings through SecretProvider
+- [x] Add controlled path/query/body request mapping
+- [x] Add HTTPS/public-network defaults, redirect blocking and optional origin allowlist
+- [x] Add bounded response streaming and response redaction rules
+- [x] Add Generic REST health probe contract
+- [x] Add Connector SDK + Generic REST acceptance scenario through BridgeRuntime policy/audit
+- [x] Document Generic REST connector v1
 - [ ] Implement webhook trigger/output adapter
-- [ ] Add Connector SDK + Generic REST acceptance scenario
+- [ ] Add webhook authentication/signature verification and replay controls
+- [ ] Add Phase 2 end-to-end REST + Webhook acceptance scenario
 
-Exit condition: an external SaaS/custom HTTP API can be exposed as normalized bridge tools without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
+Exit condition: external SaaS/custom HTTP APIs and authenticated webhook events can be exposed through normalized Bridge contracts without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
 
 ## Phase 3 — MCP
 
