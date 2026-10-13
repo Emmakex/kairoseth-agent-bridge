@@ -148,14 +148,15 @@ export class ControlSessionSupervisor {
 
 export function calculateReconnectDelayMs(
   attempt: number,
-  options: NormalizedBackoffOptions = DEFAULT_BACKOFF,
+  options: SessionBackoffOptions = {},
   random: () => number = Math.random,
 ): number {
+  const normalized = normalizeBackoff(options);
   const exponential = Math.min(
-    options.maxDelayMs,
-    options.initialDelayMs * options.multiplier ** Math.max(0, attempt),
+    normalized.maxDelayMs,
+    normalized.initialDelayMs * normalized.multiplier ** Math.max(0, attempt),
   );
-  const jitterRange = exponential * options.jitterRatio;
+  const jitterRange = exponential * normalized.jitterRatio;
   const jitter = (random() * 2 - 1) * jitterRange;
 
   return Math.max(0, Math.round(exponential + jitter));
@@ -204,8 +205,6 @@ async function sleepWithAbort(
   }
 
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, delayMs);
-
     const onAbort = (): void => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -213,6 +212,11 @@ async function sleepWithAbort(
       error.name = "AbortError";
       reject(error);
     };
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
 
     signal?.addEventListener("abort", onAbort, { once: true });
   });
