@@ -37,7 +37,7 @@ export interface WebhookDefinition {
   payloadSchema?: JsonSchema | undefined;
   /** Maximum raw request body bytes. Defaults to 1 MiB, hard capped at 5 MiB. */
   maxBodyBytes?: number | undefined;
-  /** Additional JSON keys to redact before event emission. */
+  /** Additional JSON keys to redact before event persistence/output. */
   redactKeys?: readonly string[] | undefined;
 }
 
@@ -57,22 +57,32 @@ export interface NormalizedWebhookEvent {
   receivedAt: string;
   sourceTimestamp: string;
   nonce: string;
+  /** SHA-256 fingerprint of the authenticated raw body. */
+  payloadFingerprint: string;
   payload: unknown;
 }
 
 export interface WebhookEventSink {
+  /** Must be idempotent by eventId. A resolved promise means the event is durable. */
   emit(event: NormalizedWebhookEvent): Promise<void>;
 }
 
 export class InMemoryWebhookEventSink implements WebhookEventSink {
-  private readonly events: NormalizedWebhookEvent[] = [];
+  private readonly events = new Map<string, NormalizedWebhookEvent>();
 
   async emit(event: NormalizedWebhookEvent): Promise<void> {
-    this.events.push(structuredClone(event));
+    const existing = this.events.get(event.eventId);
+    if (existing) {
+      if (existing.payloadFingerprint !== event.payloadFingerprint) {
+        throw new Error("Webhook event ID conflicts with a different payload fingerprint.");
+      }
+      return;
+    }
+    this.events.set(event.eventId, structuredClone(event));
   }
 
   all(): readonly NormalizedWebhookEvent[] {
-    return structuredClone(this.events);
+    return structuredClone([...this.events.values()]);
   }
 }
 
@@ -83,4 +93,5 @@ export interface WebhookAdapterContext {
 export interface WebhookHandlingResult {
   accepted: true;
   eventId: string;
+  duplicate: boolean;
 }
