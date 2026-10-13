@@ -2,6 +2,17 @@ export type RiskLevel = "READ" | "WRITE" | "CRITICAL";
 
 export type PolicyOutcome = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 
+export type SupportedLocale = "es" | "en";
+
+export interface LocalizedToolText {
+  name: string;
+  description: string;
+}
+
+export type ToolLocalizations = Partial<
+  Readonly<Record<SupportedLocale, LocalizedToolText>>
+>;
+
 export interface InvocationContext {
   correlationId: string;
   actor: string;
@@ -26,8 +37,11 @@ export interface ToolExecutionHints {
 
 export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   id: string;
+  /** Canonical fallback text; localized discovery should prefer localizations. */
   name: string;
   description: string;
+  /** ES/EN user-facing discovery text. Tool IDs remain locale-independent. */
+  localizations?: ToolLocalizations;
   risk: RiskLevel;
   /** Protocol-neutral JSON-schema-compatible metadata for discovery adapters. */
   inputSchema?: object;
