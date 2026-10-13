@@ -38,6 +38,10 @@ export function validateConnectorManifest(manifest: ConnectorManifest): void {
     throw new Error("Connector version must use semantic-version form.");
   }
 
+  if (manifest.configSchema) {
+    validateJsonSchema(manifest.configSchema, "config schema");
+  }
+
   const capabilities = new Set<string>();
   for (const capability of manifest.capabilities) {
     validateId(capability, "connector capability");
@@ -85,15 +89,18 @@ export function validateConnectorTool(tool: ConnectorToolDefinition): void {
 
   if (retry?.mode === "transient") {
     const maxAttempts = retry.maxAttempts ?? 3;
+    const baseDelayMs = retry.baseDelayMs ?? 250;
+    const maxDelayMs = retry.maxDelayMs ?? 5_000;
+
     if (!Number.isInteger(maxAttempts) || maxAttempts < 2 || maxAttempts > 10) {
       throw new Error(`Connector tool ${tool.id} retry maxAttempts must be between 2 and 10.`);
     }
 
-    if (retry.baseDelayMs !== undefined && (!Number.isInteger(retry.baseDelayMs) || retry.baseDelayMs < 10 || retry.baseDelayMs > 60_000)) {
+    if (!Number.isInteger(baseDelayMs) || baseDelayMs < 10 || baseDelayMs > 60_000) {
       throw new Error(`Connector tool ${tool.id} retry baseDelayMs is invalid.`);
     }
 
-    if (retry.maxDelayMs !== undefined && (!Number.isInteger(retry.maxDelayMs) || retry.maxDelayMs < 10 || retry.maxDelayMs > 300_000)) {
+    if (!Number.isInteger(maxDelayMs) || maxDelayMs < baseDelayMs || maxDelayMs > 300_000) {
       throw new Error(`Connector tool ${tool.id} retry maxDelayMs is invalid.`);
     }
 
