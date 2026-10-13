@@ -44,7 +44,7 @@ Status: **in progress**
 - [x] Add signed approval decision verifier
 - [x] Bind approval to tenant, installation, tool, correlation ID and exact action fingerprint
 - [x] Add persistent single-use replay enforcement for signed approval nonce
-- [ ] Complete trusted public-key bootstrap / rotation channel
+- [x] Complete trusted approval public-key bootstrap and signed rotation channel
 - [x] Add heartbeat, readiness and capability advertisement contract
 - [x] Add automatic session renewal before expiry
 - [x] Add reconnect/backoff behavior with bounded jitter
@@ -57,8 +57,9 @@ Status: **in progress**
 - [x] Document runtime state persistence and session resilience
 - [x] Document command delivery protocol v1
 - [x] Document single-use approval replay protection
+- [x] Document approval key rotation protocol v1
 
-Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation once according to policy, blocking both command redelivery and approval-token replay.
+Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation once according to policy, blocking command redelivery and approval-token replay while maintaining a rotatable Platform trust chain.
 
 ## Phase 2 — Connector SDK + Generic REST/Webhook
 
