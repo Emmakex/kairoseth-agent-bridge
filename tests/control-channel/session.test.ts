@@ -36,8 +36,8 @@ test("opens an action-scoped short-lived session and sends heartbeat metadata", 
   const manager = new BridgeIdentityManager(store, () => NOW);
   const identity = await manager.getOrCreate();
   const binding = bindingFor(identity.bridgeInstanceId, identity.keyId);
-  let heartbeatToken: string | null = null;
-  let heartbeatPayload: HeartbeatPayload | null = null;
+  const heartbeatTokens: string[] = [];
+  const heartbeats: HeartbeatPayload[] = [];
 
   const transport: OutboundSessionTransport = {
     async requestSessionChallenge(): Promise<SessionChallenge> {
@@ -67,8 +67,8 @@ test("opens an action-scoped short-lived session and sends heartbeat metadata", 
       };
     },
     async sendHeartbeat(accessToken, heartbeat) {
-      heartbeatToken = accessToken;
-      heartbeatPayload = heartbeat;
+      heartbeatTokens.push(accessToken);
+      heartbeats.push(heartbeat);
       return {
         version: "kab.heartbeat-ack.v1",
         receivedAt: NOW.toISOString(),
@@ -87,11 +87,13 @@ test("opens an action-scoped short-lived session and sends heartbeat metadata", 
 
   await session.heartbeat("ready");
 
-  assert.equal(heartbeatToken, "opaque-session-secret");
-  assert.equal(heartbeatPayload?.sessionId, "session-1");
-  assert.equal(heartbeatPayload?.readiness, "ready");
-  assert.deepEqual(heartbeatPayload?.capabilities, ["files", "woocommerce"]);
-  assert.equal(JSON.stringify(heartbeatPayload).includes("opaque-session-secret"), false);
+  const heartbeat = heartbeats[0];
+  assert.ok(heartbeat);
+  assert.equal(heartbeatTokens[0], "opaque-session-secret");
+  assert.equal(heartbeat.sessionId, "session-1");
+  assert.equal(heartbeat.readiness, "ready");
+  assert.deepEqual(heartbeat.capabilities, ["files", "woocommerce"]);
+  assert.equal(JSON.stringify(heartbeat).includes("opaque-session-secret"), false);
 });
 
 test("session credential for a different tenant is rejected", async () => {
@@ -197,7 +199,7 @@ test("tampering with a session proof invalidates its signature", async () => {
   );
   const identity = await manager.getOrCreate();
   const binding = bindingFor(identity.bridgeInstanceId, identity.keyId);
-  let capturedProof: SignedSessionProof | null = null;
+  const capturedProofs: SignedSessionProof[] = [];
 
   const transport: OutboundSessionTransport = {
     async requestSessionChallenge() {
@@ -208,7 +210,7 @@ test("tampering with a session proof invalidates its signature", async () => {
       };
     },
     async openSession(proof) {
-      capturedProof = proof;
+      capturedProofs.push(proof);
       return {
         version: "kab.session-credential.v1",
         sessionId: "session-1",
@@ -235,7 +237,9 @@ test("tampering with a session proof invalidates its signature", async () => {
     now: () => NOW,
   }).open(binding);
 
+  const capturedProof = capturedProofs[0];
   assert.ok(capturedProof);
+
   const tampered: SignedSessionProof = {
     ...capturedProof,
     payload: {
