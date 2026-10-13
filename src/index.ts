@@ -3,6 +3,7 @@ export * from "./audit/sanitized-sink.js";
 export * from "./connectors/generic-rest/contracts.js";
 export * from "./connectors/generic-rest/factory.js";
 export * from "./connectors/generic-rest/network.js";
+export * from "./connectors/prestashop/connector.js";
 export * from "./connectors/sdk/contracts.js";
 export * from "./connectors/sdk/errors.js";
 export * from "./connectors/sdk/registry-adapter.js";
