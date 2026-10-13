@@ -28,7 +28,7 @@ Exit condition achieved: a read-only tool executes end-to-end; mutating tools ca
 
 ## Phase 1 — Kairoseth native control channel
 
-Status: **in progress**
+Status: **complete**
 
 - [x] Define persistent Ed25519 bridge identity
 - [x] Add atomic filesystem identity persistence baseline
@@ -50,7 +50,9 @@ Status: **in progress**
 - [x] Add reconnect/backoff behavior with bounded jitter
 - [x] Add durable command delivery + acknowledgement contract
 - [x] Add command-level crash-safe deduplication with two-phase receipts
-- [ ] Add sanitized audit event delivery over the control channel
+- [x] Add sanitized durable audit event delivery over the control channel
+- [x] Add event-level ACK/retry semantics with stable event IDs
+- [x] Add Phase 1 end-to-end acceptance scenario
 - [x] Document adaptive runtime deployment model
 - [x] Document installation enrollment protocol v1
 - [x] Document outbound control session protocol v1
@@ -58,10 +60,13 @@ Status: **in progress**
 - [x] Document command delivery protocol v1
 - [x] Document single-use approval replay protection
 - [x] Document approval key rotation protocol v1
+- [x] Document sanitized audit delivery protocol v1
 
-Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation once according to policy, blocking command redelivery and approval-token replay while maintaining a rotatable Platform trust chain.
+Exit condition achieved: an enrolled local bridge establishes an outbound authenticated session, executes an approved WRITE once according to policy, blocks command redelivery and approval-token replay, maintains a rotatable Platform trust chain, and delivers a sanitized reliable audit trail.
 
 ## Phase 2 — Connector SDK + Generic REST/Webhook
+
+Status: **next**
 
 - [ ] Extract Connector SDK
 - [ ] Add JSON-schema-style input/output descriptors
