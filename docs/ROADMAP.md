@@ -43,7 +43,7 @@ Status: **in progress**
 - [x] Add signed session proof using the registered bridge identity
 - [x] Add signed approval decision verifier
 - [x] Bind approval to tenant, installation, tool, correlation ID and exact action fingerprint
-- [ ] Add replay/idempotency enforcement for approval nonce
+- [x] Add persistent single-use replay enforcement for signed approval nonce
 - [ ] Complete trusted public-key bootstrap / rotation channel
 - [x] Add heartbeat, readiness and capability advertisement contract
 - [x] Add automatic session renewal before expiry
@@ -56,8 +56,9 @@ Status: **in progress**
 - [x] Document outbound control session protocol v1
 - [x] Document runtime state persistence and session resilience
 - [x] Document command delivery protocol v1
+- [x] Document single-use approval replay protection
 
-Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation exactly once according to policy.
+Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation once according to policy, blocking both command redelivery and approval-token replay.
 
 ## Phase 2 — Connector SDK + Generic REST/Webhook
 
@@ -140,7 +141,7 @@ Exit condition: MCP, A2A and Kairoseth-native callers share one execution and po
 ## Phase 6 — Production hardening
 
 - [ ] Encrypted temporary local queue
-- [ ] Replay protection and idempotency store
+- [ ] General replay/idempotency hardening for clustered/shared deployments
 - [ ] Payload/rate limits
 - [ ] Circuit breakers
 - [ ] Connector health isolation
