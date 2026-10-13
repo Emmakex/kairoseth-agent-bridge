@@ -31,6 +31,7 @@ export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
 export * from "./protocols/mcp/adapter.js";
 export * from "./protocols/mcp/contracts.js";
+export * from "./protocols/mcp/server.js";
 export * from "./runtime/bridge-runtime.js";
 export * from "./security/action-fingerprint.js";
 export * from "./security/approval-keys.js";
