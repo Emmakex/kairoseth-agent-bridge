@@ -87,7 +87,7 @@ export function sanitizeAuditMessage(
   let sanitized = message.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 
   for (const pattern of SECRET_PATTERNS) {
-    sanitized = sanitized.replace(pattern, (match, secretName?: string) => {
+    sanitized = sanitized.replace(pattern, (_match, secretName?: string) => {
       if (typeof secretName === "string" && secretName.length > 0) {
         return `${secretName}=[REDACTED]`;
       }
@@ -96,7 +96,8 @@ export function sanitizeAuditMessage(
   }
 
   if (sanitized.length > maxLength) {
-    return `${sanitized.slice(0, Math.max(0, maxLength - 12))}...[TRUNCATED]`;
+    const suffix = "...[TRUNCATED]";
+    return `${sanitized.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
   }
 
   return sanitized;
