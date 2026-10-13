@@ -5,6 +5,8 @@ import {
   generateKeyPairSync,
   randomUUID,
 } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export type RuntimeDeploymentMode =
   | "hosted"
@@ -43,6 +45,42 @@ export class InMemoryBridgeIdentityStore implements BridgeIdentityStore {
 
   async save(identity: StoredBridgeIdentity): Promise<void> {
     this.identity = { ...identity };
+  }
+}
+
+export class FileBridgeIdentityStore implements BridgeIdentityStore {
+  constructor(private readonly filePath: string) {}
+
+  async load(): Promise<StoredBridgeIdentity | null> {
+    try {
+      const content = await readFile(this.filePath, "utf8");
+      return JSON.parse(content) as StoredBridgeIdentity;
+    } catch (error) {
+      if (isFileNotFound(error)) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async save(identity: StoredBridgeIdentity): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
+
+    const temporaryPath = `${this.filePath}.${randomUUID()}.tmp`;
+    const content = `${JSON.stringify(identity, null, 2)}\n`;
+
+    try {
+      await writeFile(temporaryPath, content, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+      await rename(temporaryPath, this.filePath);
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 }
 
@@ -123,4 +161,12 @@ export class BridgeIdentityManager {
 
 export function getBridgePublicKeyFingerprint(publicKeyPem: string): string {
   return publicKeyFingerprint(publicKeyPem);
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
