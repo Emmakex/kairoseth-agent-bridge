@@ -21,7 +21,16 @@ const FALLBACK_INPUT_SCHEMA: Readonly<Record<string, unknown>> = {
   additionalProperties: true,
 };
 
-const MESSAGES: Readonly<Record<SupportedLocale, Readonly<Record<string, string>>>> = {
+type McpMessageKey =
+  | "completed"
+  | "approvalRequired"
+  | "denied"
+  | "executionFailed"
+  | "nonJson";
+
+const MESSAGES: Readonly<
+  Record<SupportedLocale, Readonly<Record<McpMessageKey, string>>>
+> = {
   en: {
     completed: "Tool completed successfully.",
     approvalRequired: "Approval required by Kairoseth policy.",
