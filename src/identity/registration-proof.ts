@@ -32,9 +32,9 @@ export interface SignedRegistrationProof {
 export interface CreateRegistrationProofOptions {
   runtimeVersion: string;
   deploymentMode: RuntimeDeploymentMode;
-  capabilities?: readonly string[];
+  capabilities?: readonly string[] | undefined;
   nonce: string;
-  now?: () => Date;
+  now?: (() => Date) | undefined;
 }
 
 export type RegistrationProofVerificationResult =
@@ -99,13 +99,7 @@ export function verifyRegistrationProof(
     return { valid: false, reason: "Registration key ID does not match the public key." };
   }
 
-  let signature: Buffer;
-
-  try {
-    signature = Buffer.from(proof.signature, "base64url");
-  } catch {
-    return { valid: false, reason: "Registration signature is malformed." };
-  }
+  const signature = Buffer.from(proof.signature, "base64url");
 
   if (signature.length === 0) {
     return { valid: false, reason: "Registration signature is missing." };
