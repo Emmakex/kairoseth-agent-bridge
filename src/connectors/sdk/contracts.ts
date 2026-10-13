@@ -95,6 +95,10 @@ export interface ConnectorToolExecutionContext {
   config: Readonly<Record<string, unknown>>;
   secrets: ConnectorSecretProvider;
   signal: AbortSignal;
+  /** 1-based execution attempt. Automatic retries increment this value. */
+  attempt: number;
+  /** Derived for keyed idempotency and reusable by remote API adapters. */
+  idempotencyKey?: string | undefined;
 }
 
 export interface ConnectorToolDefinition<TInput = unknown, TOutput = unknown> {
