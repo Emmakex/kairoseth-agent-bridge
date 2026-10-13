@@ -36,7 +36,13 @@ The same Agent Bridge core can be deployed as hosted, local/on-premises, hybrid 
 
 Local runtimes establish outbound authenticated sessions with Kairoseth Platform, advertise readiness/capabilities, renew sessions before expiry and reconnect using bounded exponential backoff.
 
-The Phase 1 control channel now includes signed approvals, single-use approval nonces, chained approval-key rotation, crash-safe command deduplication and sanitized durable audit delivery.
+The Phase 1 control channel includes signed approvals, single-use approval nonces, chained approval-key rotation, crash-safe command deduplication and sanitized durable audit delivery.
+
+## Connector SDK
+
+Phase 2 introduces the shared Connector SDK used by REST APIs, WooCommerce, PrestaShop, ERP/CRM adapters, databases and filesystem connectors.
+
+Connector definitions declare capabilities, non-secret configuration schemas, credential requirements, normalized tools, risk, input/output schemas, health checks and safe timeout/retry/idempotency behavior. Credential values are obtained only at execution time through a secret-provider abstraction.
 
 ## Initial MVP connectors
 
@@ -63,7 +69,8 @@ Core documentation:
 - `docs/APPROVAL_PROTOCOL.md`
 - `docs/APPROVAL_KEY_ROTATION.md`
 - `docs/AUDIT_DELIVERY_PROTOCOL.md`
+- `docs/CONNECTOR_SDK.md`
 
 ## Status
 
-Phase 0 and Phase 1 are complete. Phase 2 — Connector SDK + Generic REST/Webhook — is the next development phase.
+Phase 0 and Phase 1 are complete. Phase 2 — Connector SDK + Generic REST/Webhook — is in progress; the Connector SDK foundation is implemented and Generic REST is next.
