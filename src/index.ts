@@ -1,4 +1,7 @@
+export * from "./audit/outbox.js";
+export * from "./audit/sanitized-sink.js";
 export * from "./control-channel/approval-key-sync.js";
+export * from "./control-channel/audit-delivery.js";
 export * from "./control-channel/command-delivery.js";
 export * from "./control-channel/command-receipts.js";
 export * from "./control-channel/command.js";

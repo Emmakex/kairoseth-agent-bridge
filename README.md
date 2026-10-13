@@ -36,6 +36,8 @@ The same Agent Bridge core can be deployed as hosted, local/on-premises, hybrid 
 
 Local runtimes establish outbound authenticated sessions with Kairoseth Platform, advertise readiness/capabilities, renew sessions before expiry and reconnect using bounded exponential backoff.
 
+The Phase 1 control channel now includes signed approvals, single-use approval nonces, chained approval-key rotation, crash-safe command deduplication and sanitized durable audit delivery.
+
 ## Initial MVP connectors
 
 - Generic REST / Webhook
@@ -57,8 +59,11 @@ Core documentation:
 - `docs/ENROLLMENT_PROTOCOL.md`
 - `docs/CONTROL_SESSION_PROTOCOL.md`
 - `docs/SESSION_RESILIENCE.md`
+- `docs/COMMAND_DELIVERY_PROTOCOL.md`
 - `docs/APPROVAL_PROTOCOL.md`
+- `docs/APPROVAL_KEY_ROTATION.md`
+- `docs/AUDIT_DELIVERY_PROTOCOL.md`
 
 ## Status
 
-Phase 0 is complete. Phase 1 — Kairoseth native control channel — is in progress, with installation identity, enrollment, short-lived authenticated sessions, heartbeat/capability advertisement and runtime session resilience implemented.
+Phase 0 and Phase 1 are complete. Phase 2 — Connector SDK + Generic REST/Webhook — is the next development phase.
