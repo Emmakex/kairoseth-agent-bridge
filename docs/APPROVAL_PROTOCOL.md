@@ -4,7 +4,7 @@
 
 Mutating bridge operations must not execute merely because an agent supplies an arbitrary approval marker.
 
-Version 1 defines a compact signed approval token that binds a Kairoseth Platform decision to one exact bridge invocation.
+Version 1 defines a compact signed approval token that binds a Kairoseth Platform decision to one exact bridge invocation and enforces one-time consumption for valid `ALLOW` decisions.
 
 ## Token format
 
@@ -87,7 +87,7 @@ The bridge canonical encoder currently applies these rules:
 
 Kairoseth Platform must produce the same canonical representation when calculating fingerprints and signing approval payloads.
 
-## Verification sequence
+## Verification and consumption sequence
 
 For `WRITE` and `CRITICAL` tools the bridge performs these checks before execution:
 
@@ -104,9 +104,13 @@ For `WRITE` and `CRITICAL` tools the bridge performs these checks before executi
 11. `issuedAt` and `expiresAt` are valid.
 12. The token is not too far in the future.
 13. The token is not expired.
-14. `DENY` remains denied; only a valid `ALLOW` reaches execution.
+14. `DENY` remains denied.
+15. For a valid `ALLOW`, the signed nonce is atomically consumed in the replay store.
+16. If the nonce already exists, the action is denied.
+17. If replay protection is unavailable, the action is denied.
+18. Only a newly consumed valid `ALLOW` reaches execution.
 
-Any verification failure fails closed.
+Any verification or replay-protection failure fails closed.
 
 ## Key trust
 
@@ -116,27 +120,89 @@ Private approval signing keys belong only to the Kairoseth control plane and mus
 
 Key rotation is supported by `key-id`: multiple public keys may be trusted during a controlled rotation window.
 
+The dynamic Platform-to-runtime rotation channel remains a separate Phase 1 concern.
+
 ## Replay protection
 
-Version 1 already includes a signed `nonce`, but persistent one-time replay enforcement is intentionally not implemented in this microphase.
+Every approval carries a signed `nonce`.
 
-Before production approval execution is considered complete, Phase 1 must add a bounded replay/idempotency store so a valid mutating approval cannot be consumed more times than its policy permits.
+A valid `ALLOW` nonce is single-use. After signature, scope, fingerprint and lifetime validation, the bridge writes a durable replay record before returning `ALLOW` to the execution runtime.
+
+The record contains only replay-control metadata:
+
+- nonce;
+- tenant and installation;
+- tool ID;
+- correlation ID;
+- action fingerprint;
+- consumption timestamp;
+- retention timestamp.
+
+It does **not** persist the approval token itself.
+
+### Different command IDs do not bypass replay protection
+
+Command-level deduplication and approval-level replay protection are separate controls.
+
+Even if the same valid signed approval is placed inside a second command with a different `commandId`, the approval nonce has already been consumed and the second mutation is denied.
+
+### Persistence
+
+The repository provides:
+
+- `InMemoryApprovalReplayStore` for tests/composition;
+- `FileApprovalReplayStore` as the baseline persistent runtime implementation.
+
+The filesystem implementation uses versioned state, atomic temporary-file + rename writes and restrictive filesystem permissions where supported.
+
+Replay records survive runtime restarts.
+
+### Concurrency
+
+The built-in filesystem store serializes consume operations within the runtime process so concurrent attempts for one nonce produce at most one successful consumption.
+
+Deployment packaging must run one authoritative writer for a given local replay file. Multi-process/clustered deployments should replace this store with a transactional shared backend that implements the same atomic consume contract.
+
+### Retention and pruning
+
+Replay records are retained beyond approval expiry for a bounded safety window and can be pruned after `retainUntil`.
+
+The default policy adds 24 hours beyond the later of consumption time or approval expiry.
+
+### Failure behavior
+
+Replay-store failure is security-sensitive. The policy fails closed:
+
+```text
+replay store unavailable -> DENY
+```
+
+A signed `DENY` never grants execution and therefore does not need to consume execution permission.
+
+## Approval consumption and execution failure
+
+The nonce is consumed **before** a valid mutating action is released to the tool runtime.
+
+This means a connector/tool failure after approval consumption does not make the same approval reusable. A retry that requires a new execution must receive a new Platform approval/nonce unless a higher-level workflow explicitly reconciles the previous attempt.
+
+This conservative behavior prevents a failure path from becoming a replay path.
 
 ## Clock skew
 
-The verifier currently supports a bounded clock-skew allowance. The default implementation uses 30 seconds.
+The verifier supports a bounded clock-skew allowance. The default implementation uses 30 seconds.
 
 Production bridge installations must maintain reasonably synchronized clocks.
 
 ## Security boundary
 
-A valid signature proves that the trusted signing key approved or denied the represented payload. It does not replace:
+A valid signature plus a newly consumed nonce proves that the trusted signing key approved the represented action and that the approval has not already been used by this runtime trust domain. It does not replace:
 
 - agent authorization in Kairoseth Platform;
 - connector least-privilege credentials;
 - tenant/installation isolation;
-- replay protection;
+- command delivery deduplication;
 - connector-side validation;
-- audit logging.
+- audit logging;
+- transactional shared replay storage for clustered runtimes.
 
 Those controls remain separate layers.
