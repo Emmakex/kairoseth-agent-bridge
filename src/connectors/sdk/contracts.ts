@@ -1,4 +1,8 @@
-import type { InvocationContext, RiskLevel } from "../../core/contracts.js";
+import type {
+  InvocationContext,
+  RiskLevel,
+  ToolLocalizations,
+} from "../../core/contracts.js";
 
 export type JsonSchemaPrimitiveType =
   | "null"
@@ -105,6 +109,8 @@ export interface ConnectorToolDefinition<TInput = unknown, TOutput = unknown> {
   id: string;
   name: string;
   description: string;
+  /** Optional ES/EN titles/descriptions exposed by discovery protocols. */
+  localizations?: ToolLocalizations | undefined;
   risk: RiskLevel;
   inputSchema: JsonSchema;
   outputSchema?: JsonSchema | undefined;
