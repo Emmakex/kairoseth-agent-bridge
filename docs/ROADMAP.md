@@ -132,17 +132,20 @@ Exit condition achieved: an MCP-compatible agent can discover and invoke Agent B
 
 ## Phase 4 — First business connectors
 
-Status: **not started**
+Status: **in progress**
 
 ### WooCommerce
 
-Initial tool set:
-
-- [ ] list/get orders — READ
-- [ ] list/get products and stock — READ
+- [x] Add official connector wrapper over Generic REST / Connector SDK
+- [x] Use WC REST API v3 with SecretProvider consumer key/secret
+- [x] list/get orders — READ
+- [x] list/get products and stock — READ
+- [x] Publish ES/EN titles/descriptions for tools, manifest and credential setup metadata
+- [x] Add WooCommerce READ/auth/network/stock tests
+- [x] Document WooCommerce connector READ baseline in ES/EN
 - [ ] update order metadata/status — WRITE
 - [ ] update stock/product data — WRITE
-- [ ] publish ES/EN titles and descriptions for all official tools
+- [ ] Add approval/idempotency acceptance coverage for WooCommerce mutations
 
 Deployment may use a WordPress/WooCommerce connector plugin, hosted runtime, or lightweight local runtime according to the target hosting environment.
 
