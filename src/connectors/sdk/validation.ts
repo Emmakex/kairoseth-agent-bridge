@@ -175,11 +175,21 @@ function validateJsonSchema(schema: JsonSchema, label: string): void {
     for (const child of schema.allOf) validateJsonSchema(child, `${label}.allOf`);
   }
 
-  if (schema.items && !Array.isArray(schema.items)) {
-    validateJsonSchema(schema.items, `${label}.items`);
-  } else if (Array.isArray(schema.items)) {
-    for (const child of schema.items) validateJsonSchema(child, `${label}.items`);
+  if (schema.items) {
+    if (isJsonSchemaArray(schema.items)) {
+      for (const child of schema.items) {
+        validateJsonSchema(child, `${label}.items`);
+      }
+    } else {
+      validateJsonSchema(schema.items, `${label}.items`);
+    }
   }
+}
+
+function isJsonSchemaArray(
+  value: JsonSchema | readonly JsonSchema[],
+): value is readonly JsonSchema[] {
+  return Array.isArray(value);
 }
 
 function validateId(value: string, label: string): void {
