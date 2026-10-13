@@ -80,11 +80,15 @@ Status: **in progress**
 - [x] Require declared idempotency before automatic WRITE/CRITICAL retry
 - [x] Add optional connector health contract
 - [x] Document Connector SDK v1
-- [ ] Implement Generic REST connector
-- [ ] Add Generic REST authentication mappings through SecretProvider
-- [ ] Add request/response mapping and response redaction rules
+- [x] Implement Generic REST connector
+- [x] Add Generic REST authentication mappings through SecretProvider
+- [x] Add fixed-origin request/query/body mapping
+- [x] Add redirect blocking, response limits and response redaction rules
+- [x] Propagate keyed idempotency to upstream REST APIs
+- [x] Add Generic REST connector tests/acceptance coverage
+- [x] Document Generic REST connector v1
 - [ ] Implement webhook trigger/output adapter
-- [ ] Add Connector SDK + Generic REST acceptance scenario
+- [ ] Add Connector SDK + REST/Webhook end-to-end acceptance scenario
 
 Exit condition: an external SaaS/custom HTTP API can be exposed as normalized bridge tools without custom runtime-core code and without bypassing Phase 1 policy/audit controls.
 
