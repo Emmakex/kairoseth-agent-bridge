@@ -1,3 +1,6 @@
+export * from "./control-channel/command-delivery.js";
+export * from "./control-channel/command-receipts.js";
+export * from "./control-channel/command.js";
 export * from "./control-channel/enrollment.js";
 export * from "./control-channel/installation-binding.js";
 export * from "./control-channel/session.js";
