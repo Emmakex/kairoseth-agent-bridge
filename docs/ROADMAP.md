@@ -35,17 +35,20 @@ Status: **in progress**
 - [x] Ensure tenant + installation binding is assigned by Kairoseth Platform, not self-asserted by the runtime
 - [x] Add signed runtime registration proof and key-possession verification helper
 - [ ] Persist authoritative installation binding in production runtime storage
-- [ ] Define outbound-only authenticated session lifecycle
-- [ ] Add short-lived authenticated bridge credentials
+- [x] Define outbound-only authenticated session lifecycle
+- [x] Add short-lived authenticated bridge session credential contract
+- [x] Bind session credential to tenant + installation + bridge instance + key
+- [x] Add signed session proof using the registered bridge identity
 - [x] Add signed approval decision verifier
 - [x] Bind approval to tenant, installation, tool, correlation ID and exact action fingerprint
 - [ ] Add replay/idempotency enforcement for approval nonce
 - [ ] Complete trusted public-key bootstrap / rotation channel
-- [ ] Add heartbeat, readiness and capability advertisement
-- [ ] Add reconnect/backoff behavior
-- [ ] Add sanitized audit event delivery
+- [x] Add heartbeat, readiness and capability advertisement contract
+- [ ] Add automatic session renewal + reconnect/backoff behavior
+- [ ] Add sanitized audit event delivery over the control channel
 - [x] Document adaptive runtime deployment model
 - [x] Document installation enrollment protocol v1
+- [x] Document outbound control session protocol v1
 
 Exit condition: a local bridge can establish an outbound authenticated session and safely execute an approved WRITE operation exactly once according to policy.
 
