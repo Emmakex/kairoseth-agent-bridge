@@ -14,6 +14,15 @@ export interface ApprovalReplayRecord {
   retainUntil: string;
 }
 
+/**
+ * Single-use approval replay store.
+ *
+ * `consume()` MUST be atomic across every runtime instance sharing the store:
+ * exactly one caller may consume a nonce and receive `true`; every concurrent
+ * or later caller for the same nonce must receive `false`. Clustered backends
+ * should implement this with SET NX, a unique insert, conditional write or an
+ * equivalent backend-level primitive. A get-then-insert sequence is unsafe.
+ */
 export interface ApprovalReplayStore {
   consume(record: ApprovalReplayRecord): Promise<boolean>;
   get(nonce: string): Promise<ApprovalReplayRecord | null>;
@@ -56,6 +65,12 @@ interface ReplayFileV1 {
   records: ApprovalReplayRecord[];
 }
 
+/**
+ * Single-process file baseline. Its in-process lock preserves consume
+ * atomicity only inside this runtime process. Do not share the same file across
+ * independent processes/hosts; clustered deployments must inject a backend
+ * implementation that provides atomic consume at the datastore level.
+ */
 export class FileApprovalReplayStore implements ApprovalReplayStore {
   private operation: Promise<void> = Promise.resolve();
 

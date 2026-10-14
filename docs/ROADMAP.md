@@ -290,8 +290,10 @@ Exit condition achieved: MCP, A2A and Kairoseth-native callers share one executi
 
 ## Phase 6 — Production hardening
 
-- [ ] Encrypted temporary local queue
-- [ ] General replay/idempotency hardening for clustered/shared deployments
+Status: **in progress**
+
+- [x] Encrypted temporary local queue
+- [x] General replay/idempotency hardening for clustered/shared deployments
 - [ ] Payload/rate limits
 - [ ] Circuit breakers
 - [ ] Connector health isolation
@@ -307,6 +309,13 @@ Exit condition achieved: MCP, A2A and Kairoseth-native callers share one executi
 - [ ] Windows service packaging
 - [ ] Observability dashboards in Kairoseth Platform
 - [ ] ES/EN installer/operator-facing surfaces
+
+Hardening completed so far:
+
+- encrypted, bounded, TTL-based local operational queue with AES-256-GCM, atomic persistence and key rewrap support;
+- atomic shared command `claim -> execute -> complete` contract with compare-and-set completion;
+- concurrent approval nonce `consume` defined as single-winner;
+- explicit fail-closed clustered/shared datastore requirements documented in ES/EN.
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations.
 

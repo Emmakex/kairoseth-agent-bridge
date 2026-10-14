@@ -2,6 +2,7 @@ import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import { createActionFingerprint } from "../security/action-fingerprint.js";
 import type { SessionCredential } from "./session.js";
 import type {
+  CommandCompletedReceipt,
   CommandOutcomeStatus,
   CommandReceipt,
   CommandReceiptStore,
@@ -82,22 +83,24 @@ export class CommandProcessor {
       return this.ack(command, credential, "rejected", now, validationError);
     }
 
-    const existing = await this.receipts.get(command.commandId);
+    const processingReceipt = {
+      version: "kab.command-receipt.v1" as const,
+      commandId: command.commandId,
+      actionFingerprint: command.actionFingerprint,
+      state: "processing" as const,
+      startedAt: now.toISOString(),
+      retainUntil: this.retainUntil(command, now).toISOString(),
+    };
 
-    if (existing) {
-      return this.ackExisting(command, credential, existing, now);
+    const claim = await this.receipts.claim(processingReceipt);
+    if (!claim.claimed) {
+      return this.ackExisting(command, credential, claim.receipt, now);
     }
 
     const expiresAt = Date.parse(command.expiresAt);
-
     if (expiresAt <= now.getTime()) {
-      const receipt = this.completedReceipt(
-        command,
-        "expired",
-        now,
-        now,
-      );
-      await this.receipts.save(receipt);
+      const receipt = this.completedReceipt(command, "expired", now, now);
+      await this.receipts.complete(receipt);
       return this.ack(
         command,
         credential,
@@ -106,17 +109,6 @@ export class CommandProcessor {
         "Command expired before execution.",
       );
     }
-
-    const processingReceipt: CommandReceipt = {
-      version: "kab.command-receipt.v1",
-      commandId: command.commandId,
-      actionFingerprint: command.actionFingerprint,
-      state: "processing",
-      startedAt: now.toISOString(),
-      retainUntil: this.retainUntil(command, now).toISOString(),
-    };
-
-    await this.receipts.save(processingReceipt);
 
     let result;
 
@@ -135,7 +127,7 @@ export class CommandProcessor {
     } catch (error) {
       const completedAt = this.now();
       const reason = error instanceof Error ? error.message : "Command execution failed.";
-      await this.receipts.save(
+      await this.receipts.complete(
         this.completedReceipt(command, "failed", now, completedAt),
       );
       return this.ack(
@@ -149,7 +141,7 @@ export class CommandProcessor {
 
     const completedAt = this.now();
     const outcome = mapInvocationStatus(result.status);
-    await this.receipts.save(
+    await this.receipts.complete(
       this.completedReceipt(command, outcome, now, completedAt),
     );
 
@@ -277,7 +269,7 @@ export class CommandProcessor {
     outcome: CommandOutcomeStatus,
     startedAt: Date,
     completedAt: Date,
-  ): CommandReceipt {
+  ): CommandCompletedReceipt {
     return {
       version: "kab.command-receipt.v1",
       commandId: command.commandId,
