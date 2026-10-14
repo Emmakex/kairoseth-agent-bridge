@@ -132,7 +132,7 @@ Exit condition achieved: an MCP-compatible agent can discover and invoke Agent B
 
 ## Phase 4 — First business connectors
 
-Status: **in progress**
+Status: **complete**
 
 ### WooCommerce
 
@@ -246,15 +246,17 @@ Reusable integration paths already provided by the shared core:
 
 ### Phase 4 integration acceptance
 
-- [ ] Register WooCommerce, PrestaShop, MySQL and Files instances in one ToolRegistry
-- [ ] Prove READ tools from every connector execute through the same BridgeRuntime contract
-- [ ] Prove WRITE/CRITICAL tools from every connector are blocked by secure-default approval policy
-- [ ] Prove connector namespaces and ES/EN discovery coexist without collisions
-- [ ] Add Phase 4 end-to-end acceptance scenario and mark phase complete
+- [x] Register WooCommerce, PrestaShop, MySQL and Files instances in one ToolRegistry
+- [x] Prove READ tools from every connector execute through the same BridgeRuntime contract
+- [x] Prove WRITE/CRITICAL tools from every connector are blocked by secure-default approval policy
+- [x] Prove connector namespaces and ES/EN discovery coexist without collisions
+- [x] Add Phase 4 end-to-end acceptance scenario and mark phase complete
 
-Exit condition: the first Kairoseth products can consume real business-system connectors through the same bridge contract regardless of deployment mode.
+Exit condition achieved: WooCommerce, PrestaShop, MySQL and Files coexist in one normalized registry/runtime; READ operations execute through the shared core, mutating operations cannot bypass approval, audit remains common, and ES/EN discovery preserves stable technical IDs. Hosted and local/custom integration paths reuse the same contracts regardless of deployment mode.
 
 ## Phase 5 — A2A + agent interoperability
+
+Status: **not started**
 
 - [ ] Implement A2A skill adapter
 - [ ] Add agent identity mapping
