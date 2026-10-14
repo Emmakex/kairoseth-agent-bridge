@@ -7,6 +7,7 @@ import {
   McpToolAdapter,
   ToolRegistry,
   createMySqlConnector,
+  type GenericRestHttpRuntime,
   type MySqlConnectionSettings,
   type MySqlExecutionRequest,
   type MySqlExecutionResult,
@@ -143,8 +144,9 @@ function register(
 }
 
 test("MySQL connector exposes declared profiles with ES/EN metadata and no SQL in manifest", () => {
-  const runtime = fakeRuntime(async () => ({ kind: "rows", rows: [] }));
-  const { registry, connector } = register(runtime);
+  const { registry, connector } = register(
+    fakeRuntime(async () => ({ kind: "rows", rows: [] })),
+  );
 
   assert.equal(connector.manifest.id, "mysql");
   assert.deepEqual(connector.manifest.capabilities, [
@@ -153,7 +155,10 @@ test("MySQL connector exposes declared profiles with ES/EN metadata and no SQL i
     "profiles.write",
   ]);
   assert.equal(connector.tools.length, 3);
-  assert.doesNotMatch(JSON.stringify(connector.manifest), /SELECT|UPDATE|DELETE|super-secret-password/);
+  assert.doesNotMatch(
+    JSON.stringify(connector.manifest),
+    /SELECT|UPDATE|DELETE|super-secret-password/,
+  );
   assert.equal(connector.manifest.credentials[0]?.fields[1]?.secret, true);
 
   const mcp = new McpToolAdapter(new BridgeRuntime({ registry }));
@@ -170,22 +175,23 @@ test("MySQL connector exposes declared profiles with ES/EN metadata and no SQL i
 test("READ profile binds only declared prepared values and redacts result columns", async () => {
   let seenSettings: MySqlConnectionSettings | undefined;
   let seenRequest: MySqlExecutionRequest | undefined;
-  const runtime = fakeRuntime(async (settings, request) => {
-    seenSettings = settings;
-    seenRequest = request;
-    return {
-      kind: "rows",
-      rows: [
-        {
-          id: 7,
-          email: "private@example.com",
-          password: "hash-must-not-leak",
-          display_name: "Ana",
-        },
-      ],
-    };
-  });
-  const { registry } = register(runtime);
+  const { registry } = register(
+    fakeRuntime(async (settings, request) => {
+      seenSettings = settings;
+      seenRequest = request;
+      return {
+        kind: "rows",
+        rows: [
+          {
+            id: 7,
+            email: "private@example.com",
+            password: "hash-must-not-leak",
+            display_name: "Ana",
+          },
+        ],
+      };
+    }),
+  );
 
   const result = await new BridgeRuntime({ registry }).invoke(
     "mysql.primary.users.list",
@@ -220,11 +226,12 @@ test("READ profile binds only declared prepared values and redacts result column
 
 test("agent input cannot add SQL, unknown parameters or invalid values", async () => {
   let calls = 0;
-  const runtime = fakeRuntime(async () => {
-    calls += 1;
-    return { kind: "rows", rows: [] };
-  });
-  const { registry } = register(runtime);
+  const { registry } = register(
+    fakeRuntime(async () => {
+      calls += 1;
+      return { kind: "rows", rows: [] };
+    }),
+  );
   const bridge = new BridgeRuntime({ registry });
 
   const unknown = await bridge.invoke(
@@ -245,11 +252,12 @@ test("agent input cannot add SQL, unknown parameters or invalid values", async (
 
 test("WRITE and CRITICAL profiles require approval before database execution", async () => {
   let calls = 0;
-  const runtime = fakeRuntime(async () => {
-    calls += 1;
-    return { kind: "mutation", affectedRows: 1, changedRows: 1 };
-  });
-  const { registry } = register(runtime);
+  const { registry } = register(
+    fakeRuntime(async () => {
+      calls += 1;
+      return { kind: "mutation", affectedRows: 1, changedRows: 1 };
+    }),
+  );
   const bridge = new BridgeRuntime({ registry });
 
   const write = await bridge.invoke(
@@ -270,20 +278,20 @@ test("WRITE and CRITICAL profiles require approval before database execution", a
 
 test("approved mutation returns only normalized mutation summary", async () => {
   let seenRequest: MySqlExecutionRequest | undefined;
-  const runtime = fakeRuntime(async (_settings, request) => {
-    seenRequest = request;
-    return {
-      kind: "mutation",
-      affectedRows: 1,
-      changedRows: 1,
-      insertId: 0,
-      warningStatus: 0,
-    };
-  });
-  const { registry } = register(runtime);
-  const bridge = new BridgeRuntime({ registry, policy: allowPolicy });
+  const { registry } = register(
+    fakeRuntime(async (_settings, request) => {
+      seenRequest = request;
+      return {
+        kind: "mutation",
+        affectedRows: 1,
+        changedRows: 1,
+        insertId: 0,
+        warningStatus: 0,
+      };
+    }),
+  );
 
-  const result = await bridge.invoke(
+  const result = await new BridgeRuntime({ registry, policy: allowPolicy }).invoke(
     "mysql.primary.users.update-status",
     { status: "disabled", tenantId: 9, userId: 7 },
     { correlationId: "corr-mysql-write-allow", actor: "approved-agent" },
@@ -304,16 +312,18 @@ test("approved mutation returns only normalized mutation summary", async () => {
 
 test("READ transient database errors retry, mutations never auto-retry", async () => {
   let readCalls = 0;
-  const readRuntime = fakeRuntime(async () => {
-    readCalls += 1;
-    if (readCalls === 1) {
-      const error = new Error("deadlock") as Error & { code: string };
-      error.code = "ER_LOCK_DEADLOCK";
-      throw error;
-    }
-    return { kind: "rows", rows: [{ id: 1 }] };
-  });
-  const { registry: readRegistry } = register(readRuntime, [readProfile]);
+  const { registry: readRegistry } = register(
+    fakeRuntime(async () => {
+      readCalls += 1;
+      if (readCalls === 1) {
+        const error = new Error("deadlock") as Error & { code: string };
+        error.code = "ER_LOCK_DEADLOCK";
+        throw error;
+      }
+      return { kind: "rows", rows: [{ id: 1 }] };
+    }),
+    [readProfile],
+  );
   const readResult = await new BridgeRuntime({ registry: readRegistry }).invoke(
     "mysql.primary.users.list",
     { tenantId: 9, limit: 25 },
@@ -323,13 +333,15 @@ test("READ transient database errors retry, mutations never auto-retry", async (
   assert.equal(readCalls, 2);
 
   let writeCalls = 0;
-  const writeRuntime = fakeRuntime(async () => {
-    writeCalls += 1;
-    const error = new Error("connection lost") as Error & { code: string };
-    error.code = "PROTOCOL_CONNECTION_LOST";
-    throw error;
-  });
-  const { registry: writeRegistry } = register(writeRuntime, [writeProfile]);
+  const { registry: writeRegistry } = register(
+    fakeRuntime(async () => {
+      writeCalls += 1;
+      const error = new Error("connection lost") as Error & { code: string };
+      error.code = "PROTOCOL_CONNECTION_LOST";
+      throw error;
+    }),
+    [writeProfile],
+  );
   const writeResult = await new BridgeRuntime({
     registry: writeRegistry,
     policy: allowPolicy,
@@ -343,19 +355,19 @@ test("READ transient database errors retry, mutations never auto-retry", async (
 });
 
 test("READ result row bound is enforced", async () => {
-  const boundedProfile: MySqlProfile = { ...readProfile, maxRows: 2 };
-  const runtime = fakeRuntime(async () => ({
-    kind: "rows",
-    rows: [{ id: 1 }, { id: 2 }, { id: 3 }],
-  }));
-  const { registry } = register(runtime, [boundedProfile]);
+  const { registry } = register(
+    fakeRuntime(async () => ({
+      kind: "rows",
+      rows: [{ id: 1 }, { id: 2 }, { id: 3 }],
+    })),
+    [{ ...readProfile, maxRows: 2 }],
+  );
 
   const result = await new BridgeRuntime({ registry }).invoke(
     "mysql.primary.users.list",
     { tenantId: 9, limit: 25 },
     { correlationId: "corr-mysql-bound", actor: "agent-mysql" },
   );
-
   assert.equal(result.status, "failed");
   if (result.status === "failed") assert.match(result.error, /2-row result bound/);
 });
@@ -366,28 +378,29 @@ test("TLS disable requires explicit deployment opt-in and host allowlist is enfo
     { profiles: [readProfile], allowedHosts: ["db.example.com"] },
     runtime,
   );
-  const registry = new ToolRegistry();
-  new ConnectorRegistryAdapter(registry).register({
+
+  const tlsRegistry = new ToolRegistry();
+  new ConnectorRegistryAdapter(tlsRegistry).register({
     instanceId: "primary",
     connector,
     config: { ...config, tlsMode: "disabled" },
     secrets,
   });
-  const disabled = await new BridgeRuntime({ registry }).invoke(
+  const disabled = await new BridgeRuntime({ registry: tlsRegistry }).invoke(
     "mysql.primary.users.list",
     { tenantId: 9, limit: 25 },
     { correlationId: "corr-mysql-tls", actor: "agent-mysql" },
   );
   assert.equal(disabled.status, "failed");
 
-  const otherRegistry = new ToolRegistry();
-  new ConnectorRegistryAdapter(otherRegistry).register({
+  const hostRegistry = new ToolRegistry();
+  new ConnectorRegistryAdapter(hostRegistry).register({
     instanceId: "primary",
     connector,
     config: { ...config, host: "evil.example.net" },
     secrets,
   });
-  const host = await new BridgeRuntime({ registry: otherRegistry }).invoke(
+  const host = await new BridgeRuntime({ registry: hostRegistry }).invoke(
     "mysql.primary.users.list",
     { tenantId: 9, limit: 25 },
     { correlationId: "corr-mysql-host", actor: "agent-mysql" },
@@ -460,7 +473,10 @@ test("profile registration rejects unsafe SQL and incomplete ES/EN metadata", ()
               ...readProfile,
               id: "unsafe.locale",
               localizations: {
-                en: readProfile.localizations.en,
+                en: {
+                  name: "English only",
+                  description: "Spanish metadata intentionally omitted for this validation test.",
+                },
               },
             },
           ],
