@@ -32,6 +32,7 @@ export * from "./control-channel/http-enrollment-transport.js";
 export * from "./control-channel/http-runtime-snapshot-transport.js";
 export * from "./control-channel/http-session-transport.js";
 export * from "./control-channel/installation-binding.js";
+export * from "./control-channel/runtime-snapshot-scheduler.js";
 export * from "./control-channel/runtime-snapshot.js";
 export * from "./control-channel/session.js";
 export * from "./control-channel/session-proof.js";
