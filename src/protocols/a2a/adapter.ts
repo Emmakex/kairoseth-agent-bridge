@@ -40,11 +40,15 @@ export class A2AAgentCardAdapter {
   private readonly interfaces: readonly A2AAgentInterface[];
   private readonly inputModes: readonly string[];
   private readonly outputModes: readonly string[];
-  private readonly provider?: A2AAgentProvider;
-  private readonly documentationUrl?: string;
-  private readonly iconUrl?: string;
-  private readonly securitySchemes?: Readonly<Record<string, A2ASecurityScheme>>;
-  private readonly securityRequirements?: readonly A2ASecurityRequirement[];
+  private readonly provider: A2AAgentProvider | undefined;
+  private readonly documentationUrl: string | undefined;
+  private readonly iconUrl: string | undefined;
+  private readonly securitySchemes:
+    | Readonly<Record<string, A2ASecurityScheme>>
+    | undefined;
+  private readonly securityRequirements:
+    | readonly A2ASecurityRequirement[]
+    | undefined;
 
   constructor(
     private readonly registry: ToolRegistry,
