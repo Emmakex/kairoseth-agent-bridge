@@ -32,3 +32,23 @@ jobs:
 
       - name: Typecheck, test and build
         run: npm run check
+
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
+
+      - name: Validate SBOM
+        run: >-
+          node -e 'const fs=require("node:fs"); const sbom=JSON.parse(fs.readFileSync("sbom.cdx.json","utf8"));
+          if(sbom.bomFormat!=="CycloneDX"||!Array.isArray(sbom.components)) process.exit(1);'
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-bridge-sbom-${{ github.sha }}
+          path: sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
