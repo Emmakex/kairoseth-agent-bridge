@@ -46,6 +46,7 @@ export * from "./core/provenance.js";
 export * from "./core/registry.js";
 export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
+export * from "./product-identity.js";
 export * from "./protocols/a2a/adapter.js";
 export * from "./protocols/a2a/contracts.js";
 export * from "./protocols/a2a/execution-contracts.js";
