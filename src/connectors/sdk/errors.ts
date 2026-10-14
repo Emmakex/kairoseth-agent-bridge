@@ -29,3 +29,27 @@ export class ConnectorConfigurationError extends ConnectorError {
     this.name = "ConnectorConfigurationError";
   }
 }
+
+/**
+ * Raised when a metadata-only credential rotation notice cannot be applied.
+ * The message intentionally excludes provider/connector raw errors.
+ */
+export class ConnectorCredentialRotationError extends ConnectorError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConnectorCredentialRotationError";
+  }
+}
+
+/**
+ * Fail-closed execution guard while credential rotation is refreshing or when
+ * the most recent rotation attempt failed and requires operator remediation.
+ */
+export class ConnectorCredentialRotationPendingError extends ConnectorError {
+  constructor(connectorId: string, connectorInstanceId: string) {
+    super(
+      `Connector instance ${connectorId}.${connectorInstanceId} is blocked by credential rotation.`,
+    );
+    this.name = "ConnectorCredentialRotationPendingError";
+  }
+}
