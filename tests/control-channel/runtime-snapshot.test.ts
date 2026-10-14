@@ -80,14 +80,14 @@ test("runtime reporter combines registered inventory and reduced health without 
   const configured = instance();
   adapter.register(configured);
 
-  let reported: RuntimeOperationalSnapshot | null = null;
+  const reports: RuntimeOperationalSnapshot[] = [];
   const reporter = new RuntimeSnapshotReporter(
     [configured],
     adapter,
     {
       async report(accessToken, snapshot) {
         assert.equal(accessToken, "session-secret");
-        reported = snapshot;
+        reports.push(snapshot);
         return {
           version: "kab.runtime-snapshot-ack.v1",
           snapshotId: snapshot.snapshotId,
@@ -103,6 +103,7 @@ test("runtime reporter combines registered inventory and reduced health without 
 
   const ack = await reporter.report("session-secret");
   assert.equal(ack.snapshotId, "snapshot-1");
+  const reported = reports[0];
   assert.ok(reported);
   assert.equal(reported.version, "kab.runtime-snapshot.v1");
   assert.equal(reported.connectors[0]?.connectorId, "woocommerce");
