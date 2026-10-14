@@ -34,8 +34,11 @@ export interface AdmissionControlPolicyOptions {
   toolPayloadLimits?: Readonly<Record<string, number>> | undefined;
   rateLimits?: readonly InvocationRateLimitRule[] | undefined;
   now?: (() => Date) | undefined;
-  /** Secure default: a configured rate-limit store failure denies the invocation. */
-  failClosedOnRateLimitError?: boolean | undefined;
+  /**
+   * Optional availability tradeoff for READ only. WRITE/CRITICAL always deny
+   * when a configured rate-limit backend is unavailable.
+   */
+  failOpenForReadOnRateLimitError?: boolean | undefined;
 }
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -51,7 +54,7 @@ export class AdmissionControlPolicyEvaluator implements PolicyEvaluator {
   private readonly toolPayloadLimits: Readonly<Record<string, number>>;
   private readonly rateLimits: readonly InvocationRateLimitRule[];
   private readonly now: () => Date;
-  private readonly failClosedOnRateLimitError: boolean;
+  private readonly failOpenForReadOnRateLimitError: boolean;
 
   constructor(
     private readonly basePolicy: PolicyEvaluator,
@@ -67,8 +70,8 @@ export class AdmissionControlPolicyEvaluator implements PolicyEvaluator {
     );
     this.rateLimits = (options.rateLimits ?? []).map(normalizeRule);
     this.now = options.now ?? (() => new Date());
-    this.failClosedOnRateLimitError =
-      options.failClosedOnRateLimitError ?? true;
+    this.failOpenForReadOnRateLimitError =
+      options.failOpenForReadOnRateLimitError ?? false;
 
     if (this.rateLimits.length > 0 && !this.rateLimitStore) {
       throw new Error("Configured invocation rate limits require a RateLimitStore.");
@@ -147,7 +150,10 @@ export class AdmissionControlPolicyEvaluator implements PolicyEvaluator {
           };
         }
       } catch {
-        if (this.failClosedOnRateLimitError) {
+        if (
+          tool.risk !== "READ" ||
+          !this.failOpenForReadOnRateLimitError
+        ) {
           return {
             outcome: "DENY",
             reason: `Invocation rate limiting is unavailable for rule ${rule.id}.`,
