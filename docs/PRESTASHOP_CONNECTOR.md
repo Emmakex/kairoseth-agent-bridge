@@ -4,24 +4,33 @@
 
 El conector oficial de PrestaShop expone una superficie controlada del Webservice nativo como tools normalizadas de Kairoseth Agent Bridge.
 
-### Baseline READ
+### Superficie inicial
 
-Tools iniciales:
+Tools READ:
 
 - `orders.list` — listar pedidos con filtros controlados;
 - `orders.get` — obtener un pedido por ID;
+- `order-states.list` — listar los estados de pedido configurados realmente en la tienda;
 - `products.list` — listar productos con filtros controlados;
 - `products.get` — obtener un producto por ID;
 - `stock.get-by-product` — consultar `StockAvailable` para un producto y una combinación opcional.
+
+Tools WRITE:
+
+- `orders.update-status` — cambiar el estado creando un `OrderHistory`, en lugar de modificar `orders.current_state` directamente;
+- `stock.update-quantity` — fijar la cantidad absoluta de un `StockAvailable` mediante PATCH parcial.
 
 Los IDs en runtime quedan namespaced por instancia:
 
 ```text
 prestashop.<instanceId>.orders.list
 prestashop.<instanceId>.orders.get
+prestashop.<instanceId>.order-states.list
+prestashop.<instanceId>.orders.update-status
 prestashop.<instanceId>.products.list
 prestashop.<instanceId>.products.get
 prestashop.<instanceId>.stock.get-by-product
+prestashop.<instanceId>.stock.update-quantity
 ```
 
 ### Endpoint y subcarpetas
@@ -34,11 +43,7 @@ La configuración no secreta contiene únicamente la URL base de la instalación
 }
 ```
 
-El conector conserva el prefijo de instalación y construye el Webservice bajo `/api/`. Por ejemplo:
-
-```text
-https://tienda.example.com/prestashop/api/orders
-```
+El conector conserva el prefijo de instalación y construye el Webservice bajo `/api/`.
 
 HTTPS es obligatorio por defecto. HTTP y redes privadas solo pueden habilitarse explícitamente para despliegues locales/on-prem controlados.
 
@@ -54,17 +59,44 @@ La clave:
 - nunca se almacena en manifest/configuración;
 - nunca se devuelve en resultados o auditoría.
 
-### JSON y filtros
+### READ, JSON y filtros
 
 Las peticiones READ solicitan `output_format=JSON`. Las listas usan únicamente filtros declarados por el conector y paginación limitada; no se expone una interfaz libre de query parameters.
 
-El stock se consulta mediante el recurso `stock_availables`, que es la fuente autoritativa de cantidad para productos y combinaciones.
+El stock se consulta mediante `stock_availables`. `order-states.list` permite descubrir los IDs de estado configurados por cada tienda en vez de asumir valores globales.
 
-### Seguridad
+### WRITE de estado de pedido
 
-El baseline conserva:
+`orders.update-status` recibe únicamente:
 
-- policy READ / WRITE / CRITICAL del Bridge;
+- `orderId`;
+- `orderStateId`;
+- `sendEmail` opcional, `false` por defecto.
+
+La mutación crea un recurso `order_histories` con XML generado internamente y solo los campos `id_order` e `id_order_state`. Así se utiliza el flujo de cambio de estado del Webservice de PrestaShop en lugar de escribir directamente el campo `current_state` del pedido.
+
+La operación se considera **no idempotente**: repetirla podría crear otra entrada de historial y volver a ejecutar efectos asociados. Por ello declara `retry: never`.
+
+### WRITE de stock
+
+`stock.update-quantity` recibe:
+
+- `stockAvailableId`;
+- `productId`;
+- `productAttributeId` opcional, `0` por defecto;
+- `quantity` absoluta.
+
+Antes del PATCH, el conector lee `/api/stock_availables/<id>` y comprueba que el registro pertenece exactamente al producto/combinación esperados. Solo después envía un PATCH XML generado internamente con `id` y `quantity`.
+
+Fijar una cantidad absoluta se marca como idempotencia intrínseca, pero sigue declarando `retry: never`: un resultado de red incierto nunca provoca una segunda mutación automática.
+
+### Approvals y seguridad
+
+Con la policy segura por defecto, ambas WRITE devuelven `approval_required` antes de realizar cualquier llamada HTTP. Tras una aprobación válida, la ejecución continúa por el mismo `BridgeRuntime`, auditoría y controles del core.
+
+El conector conserva además:
+
+- policy READ / WRITE / CRITICAL;
 - SecretProvider para credenciales;
 - HTTPS/public-network por defecto;
 - protección SSRF y allowlist opcional de origin;
@@ -72,17 +104,11 @@ El baseline conserva:
 - límites de tamaño de respuesta;
 - redacción recursiva de `secure_key`, password/token/api-key y claves sensibles;
 - validación estricta de input y rechazo de campos adicionales;
-- retry únicamente para fallos transitorios de operaciones READ;
-- auditoría del core;
-- metadata ES/EN en manifest, setup y tools.
+- retry únicamente para fallos transitorios de READ;
+- ninguna repetición automática de WRITE;
+- metadata ES/EN en manifest, setup y todas las tools.
 
-No se expone SQL, paths arbitrarios ni un cliente Webservice genérico.
-
-### Próxima microfase
-
-Las mutaciones se implementarán como tools independientes y allowlisted. No existirá un endpoint genérico para modificar cualquier recurso de PrestaShop.
-
-Los primeros WRITE previstos son actualización controlada de estado de pedido y actualización controlada de `StockAvailable`, siempre detrás del policy/approval gate y sin retry automático inseguro.
+No se expone SQL, paths arbitrarios, XML arbitrario ni un cliente Webservice genérico. Futuras capacidades deben añadirse como tools independientes y allowlisted.
 
 ---
 
@@ -90,24 +116,33 @@ Los primeros WRITE previstos son actualización controlada de estado de pedido y
 
 The official PrestaShop connector exposes a controlled native Webservice surface as normalized Kairoseth Agent Bridge tools.
 
-### READ baseline
+### Initial surface
 
-Initial tools:
+READ tools:
 
 - `orders.list` — list orders with controlled filters;
 - `orders.get` — retrieve one order by ID;
+- `order-states.list` — list the order states actually configured by the shop;
 - `products.list` — list products with controlled filters;
 - `products.get` — retrieve one product by ID;
 - `stock.get-by-product` — query `StockAvailable` for a product and optional combination.
+
+WRITE tools:
+
+- `orders.update-status` — change state by creating an `OrderHistory` instead of directly editing `orders.current_state`;
+- `stock.update-quantity` — set an absolute `StockAvailable` quantity through partial PATCH.
 
 Runtime IDs are namespaced per instance:
 
 ```text
 prestashop.<instanceId>.orders.list
 prestashop.<instanceId>.orders.get
+prestashop.<instanceId>.order-states.list
+prestashop.<instanceId>.orders.update-status
 prestashop.<instanceId>.products.list
 prestashop.<instanceId>.products.get
 prestashop.<instanceId>.stock.get-by-product
+prestashop.<instanceId>.stock.update-quantity
 ```
 
 ### Endpoint and subfolders
@@ -120,11 +155,7 @@ Non-secret configuration contains only the installation base URL:
 }
 ```
 
-The connector preserves the installation prefix and builds the Webservice under `/api/`. Example:
-
-```text
-https://shop.example.com/prestashop/api/orders
-```
+The connector preserves the installation prefix and builds the Webservice under `/api/`.
 
 HTTPS is required by default. HTTP and private-network access can only be enabled explicitly for controlled local/on-prem deployments.
 
@@ -140,15 +171,42 @@ The key:
 - is never stored in manifest/configuration;
 - is never returned in results or audit.
 
-### JSON and filters
+### READ, JSON and filters
 
 READ requests use `output_format=JSON`. Collection tools expose only connector-declared filters and bounded pagination; arbitrary query parameters are not exposed.
 
-Stock is queried through the `stock_availables` resource, the authoritative quantity source for products and combinations.
+Stock is queried through `stock_availables`. `order-states.list` lets agents discover the state IDs configured by each shop rather than assuming global values.
 
-### Security
+### Order-status WRITE
 
-The baseline preserves:
+`orders.update-status` accepts only:
+
+- `orderId`;
+- `orderStateId`;
+- optional `sendEmail`, defaulting to `false`.
+
+The mutation creates an `order_histories` resource using connector-generated XML containing only `id_order` and `id_order_state`. This uses PrestaShop's Webservice state-transition flow instead of directly writing the order's `current_state` field.
+
+The operation is considered **non-idempotent**: repeating it could create another history entry and repeat associated effects. It therefore declares `retry: never`.
+
+### Stock WRITE
+
+`stock.update-quantity` accepts:
+
+- `stockAvailableId`;
+- `productId`;
+- optional `productAttributeId`, defaulting to `0`;
+- absolute `quantity`.
+
+Before PATCH, the connector reads `/api/stock_availables/<id>` and verifies that the record belongs exactly to the expected product/combination. Only then does it send connector-generated PATCH XML containing `id` and `quantity`.
+
+Setting an absolute quantity is marked intrinsically idempotent, but it still declares `retry: never`: an uncertain network outcome never triggers a second automatic mutation.
+
+### Approvals and security
+
+Under the secure-default policy, both WRITE tools return `approval_required` before any HTTP call. After a valid approval, execution still flows through the same `BridgeRuntime`, audit and core controls.
+
+The connector also preserves:
 
 - Bridge READ / WRITE / CRITICAL policy;
 - SecretProvider credentials;
@@ -159,13 +217,7 @@ The baseline preserves:
 - recursive redaction of `secure_key`, password/token/api-key and sensitive keys;
 - strict input validation and additional-field rejection;
 - retries only for transient READ failures;
-- core audit;
-- ES/EN metadata for manifest, setup and tools.
+- no automatic WRITE retries;
+- ES/EN metadata for manifest, setup and every tool.
 
-No SQL, arbitrary paths or generic Webservice client are exposed.
-
-### Next microphase
-
-Mutations will be implemented as separate allowlisted tools. There will be no generic endpoint for modifying arbitrary PrestaShop resources.
-
-The first planned WRITE tools are a controlled order-status update and a controlled `StockAvailable` update, always behind the policy/approval gate and without unsafe automatic mutation retries.
+No SQL, arbitrary paths, arbitrary XML or generic Webservice client are exposed. Future capabilities must be added as separate allowlisted tools.
