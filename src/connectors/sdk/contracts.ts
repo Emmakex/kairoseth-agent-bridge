@@ -82,8 +82,76 @@ export interface ConnectorCredentialRequirement {
   fields: readonly ConnectorCredentialField[];
 }
 
+/**
+ * Metadata-only notice that a credential was rotated outside the connector.
+ * Secret values must never be embedded in this object.
+ */
+export interface ConnectorCredentialRotationNotice {
+  rotationId: string;
+  requirementId: string;
+  fieldIds: readonly string[];
+  rotatedAt: string;
+  /** Opaque non-secret backend revision/version for correlation only. */
+  revision?: string | undefined;
+}
+
+export interface ConnectorSecretRefreshContext {
+  connectorId: string;
+  connectorInstanceId: string;
+  signal: AbortSignal;
+}
+
 export interface ConnectorSecretProvider {
   getSecret(requirementId: string, fieldId: string): Promise<string | null>;
+  /**
+   * Optional cache/handle invalidation hook. Providers without this hook must
+   * resolve the current credential on every getSecret() call.
+   */
+  refreshCredentials?(
+    notice: ConnectorCredentialRotationNotice,
+    context: ConnectorSecretRefreshContext,
+  ): Promise<void>;
+}
+
+export type ConnectorCredentialRotationRuntimeStatus =
+  | "idle"
+  | "refreshing"
+  | "blocked";
+
+export type ConnectorCredentialRotationFailureReason =
+  | "refresh_failed"
+  | "timeout";
+
+export interface ConnectorCredentialRotationState {
+  status: ConnectorCredentialRotationRuntimeStatus;
+  rotationId?: string | undefined;
+  requirementId?: string | undefined;
+  fieldIds?: readonly string[] | undefined;
+  rotatedAt?: string | undefined;
+  revision?: string | undefined;
+  failureReason?: ConnectorCredentialRotationFailureReason | undefined;
+}
+
+export interface ConnectorCredentialRotationContext {
+  connectorId: string;
+  connectorInstanceId: string;
+  config: Readonly<Record<string, unknown>>;
+  secrets: ConnectorSecretProvider;
+  signal: AbortSignal;
+}
+
+export interface ConnectorCredentialRotationResult {
+  status: "applied";
+  rotationId: string;
+  connectorId: string;
+  connectorInstanceId: string;
+  requirementId: string;
+  fieldIds: readonly string[];
+  rotatedAt: string;
+  revision?: string | undefined;
+  providerRefresh: "live" | "refreshed";
+  connectorHook: "not_declared" | "applied";
+  appliedAt: string;
 }
 
 export type ConnectorIdempotencyMode = "none" | "intrinsic" | "keyed";
@@ -172,12 +240,17 @@ export type ConnectorToolAvailabilityStatus =
   | "degraded"
   | "blocked";
 
+export type ConnectorToolBlockedReason =
+  | "circuit_open"
+  | "credential_rotation";
+
 export interface ConnectorToolHealthSnapshot {
   /** Connector-local tool ID. */
   toolId: string;
   /** Fully namespaced ToolRegistry ID. */
   runtimeToolId: string;
   availability: ConnectorToolAvailabilityStatus;
+  blockedReason?: ConnectorToolBlockedReason | undefined;
   /** Omitted only when circuit breakers are explicitly disabled by deployment. */
   circuit?: ConnectorCircuitSnapshot | undefined;
 }
@@ -193,12 +266,22 @@ export interface ConnectorInstanceHealthSnapshot {
   checkedAt: string;
   probe: ConnectorHealthResult;
   tools: readonly ConnectorToolHealthSnapshot[];
+  /** Present only while a rotation is refreshing or fail-closed blocked. */
+  credentialRotation?: ConnectorCredentialRotationState | undefined;
 }
 
 export interface ConnectorDefinition {
   manifest: ConnectorManifest;
   tools: readonly ConnectorToolDefinition[];
   health?(context: ConnectorHealthContext): Promise<ConnectorHealthResult>;
+  /**
+   * Optional hook used to rebuild connector-owned clients/pools after the
+   * SecretProvider has refreshed its current credential view.
+   */
+  credentialsRotated?(
+    notice: ConnectorCredentialRotationNotice,
+    context: ConnectorCredentialRotationContext,
+  ): Promise<void>;
 }
 
 export interface ConnectorInstance {
