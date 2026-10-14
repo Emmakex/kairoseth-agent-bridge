@@ -511,6 +511,12 @@ function invocationContextForA2A(
     ...(invocation.approvalToken !== undefined
       ? { approvalToken: invocation.approvalToken }
       : {}),
+    ...(invocation.delegationToken !== undefined
+      ? { delegationToken: invocation.delegationToken }
+      : {}),
+    ...(invocation.delegationRequired !== undefined
+      ? { delegationRequired: invocation.delegationRequired }
+      : {}),
     metadata: {
       ...(invocation.metadata ?? {}),
       protocol: "a2a",

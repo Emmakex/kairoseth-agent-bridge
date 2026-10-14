@@ -267,8 +267,10 @@ Status: **in progress**
 - [x] Preserve original action fingerprint and correlation ID across approved task resume
 - [x] Reject identity/approval spoofing from untrusted A2A message metadata
 - [x] Add ES/EN A2A execution status messages and protocol documentation
-- [ ] Add verified A2A transport identity mapping into Kairoseth actor/tenant/installation context
-- [ ] Add delegated authorization model
+- [x] Add verified A2A transport identity mapping into authoritative Kairoseth actor/tenant/installation context
+- [x] Add signed delegated authorization with exact tool/risk scope and fail-closed revocation hooks
+- [x] Prove delegated WRITE access still requires the normal Kairoseth action approval
+- [x] Add ES/EN identity/delegation documentation and integrated acceptance coverage
 - [ ] Add invocation provenance
 - [ ] Add cross-agent correlation and audit
 - [ ] Add official A2A transport/SDK interoperability and Phase 5 end-to-end acceptance

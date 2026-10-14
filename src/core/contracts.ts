@@ -19,6 +19,17 @@ export interface InvocationContext {
   tenantId?: string;
   installationId?: string;
   approvalToken?: string;
+  /**
+   * Optional signed delegation grant carried separately from descriptive
+   * protocol metadata. It never counts as a human approval.
+   */
+  delegationToken?: string;
+  /**
+   * Trusted host/policy hint indicating that this principal may only execute
+   * when a valid delegation grant is present. Untrusted clients must never set
+   * this flag directly.
+   */
+  delegationRequired?: boolean;
   metadata?: Readonly<Record<string, string>>;
 }
 
