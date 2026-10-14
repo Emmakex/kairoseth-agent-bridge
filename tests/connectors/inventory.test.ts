@@ -25,7 +25,7 @@ function connector(id: string, toolId: string): ConnectorDefinition {
         es: { name: `${id} ES`, description: `${id} descripción` },
         en: { name: `${id} EN`, description: `${id} description EN` },
       },
-      capabilities: ["orders", "catalog", "orders"],
+      capabilities: ["orders", "catalog"],
       credentials: [
         {
           id: "api",
