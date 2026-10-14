@@ -8,6 +8,7 @@ import type {
 } from "../core/contracts.js";
 import { NoopAuditSink } from "../core/audit.js";
 import { SecureDefaultPolicyEvaluator } from "../core/policy.js";
+import { normalizeInvocationProvenance } from "../core/provenance.js";
 import { ToolRegistry } from "../core/registry.js";
 
 export interface BridgeRuntimeOptions {
@@ -106,6 +107,9 @@ export class BridgeRuntime {
       actor: context.actor,
       risk: tool.risk,
       occurredAt: new Date().toISOString(),
+      ...(context.provenance
+        ? { provenance: normalizeInvocationProvenance(context.provenance) }
+        : {}),
     };
   }
 

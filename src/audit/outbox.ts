@@ -11,6 +11,28 @@ export type AuditEventTypeV1 =
 
 export type AuditRiskLevelV1 = "READ" | "WRITE" | "CRITICAL";
 export type AuditPolicyOutcomeV1 = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
+export type AuditInvocationProtocolV1 =
+  | "kairoseth-native"
+  | "mcp"
+  | "a2a"
+  | "rest"
+  | "webhook"
+  | "internal";
+
+export interface SanitizedAuditPrincipalProvenance {
+  issuer: string;
+  subject: string;
+  authenticationMethod: string;
+  clientId?: string | undefined;
+}
+
+export interface SanitizedAuditProvenance {
+  version: "kab.provenance.v1";
+  protocol: AuditInvocationProtocolV1;
+  rootCorrelationId: string;
+  parentCorrelationId?: string | undefined;
+  principal?: SanitizedAuditPrincipalProvenance | undefined;
+}
 
 export interface SanitizedAuditEvent {
   version: "kab.audit-event.v1";
@@ -26,6 +48,7 @@ export interface SanitizedAuditEvent {
   occurredAt: string;
   outcome?: AuditPolicyOutcomeV1 | undefined;
   message?: string | undefined;
+  provenance?: SanitizedAuditProvenance | undefined;
 }
 
 export interface AuditOutboxStore {

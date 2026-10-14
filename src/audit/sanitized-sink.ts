@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-import type { AuditEvent, AuditSink } from "../core/contracts.js";
-import type { AuditOutboxStore, SanitizedAuditEvent } from "./outbox.js";
+import type {
+  AuditEvent,
+  AuditSink,
+  InvocationProvenance,
+} from "../core/contracts.js";
+import type {
+  AuditOutboxStore,
+  SanitizedAuditEvent,
+  SanitizedAuditProvenance,
+} from "./outbox.js";
 
 export interface AuditScope {
   tenantId: string;
@@ -19,6 +27,7 @@ const DEFAULT_MAX_IDENTIFIER_LENGTH = 256;
 
 const SECRET_PATTERNS: readonly RegExp[] = [
   /kab1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+  /kabd1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
   /Bearer\s+[A-Za-z0-9._~+\/-]+/gi,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret|authorization)\b\s*[:=]\s*[^\s,;]+/gi,
@@ -74,6 +83,9 @@ export class SanitizedAuditSink implements AuditSink {
       ...(event.message
         ? { message: sanitizeAuditMessage(event.message, this.maxMessageLength) }
         : {}),
+      ...(event.provenance
+        ? { provenance: sanitizeProvenance(event.provenance, this.maxIdentifierLength) }
+        : {}),
     };
 
     await this.outbox.enqueue(sanitized);
@@ -101,6 +113,60 @@ export function sanitizeAuditMessage(
   }
 
   return sanitized;
+}
+
+function sanitizeProvenance(
+  provenance: InvocationProvenance,
+  maxIdentifierLength: number,
+): SanitizedAuditProvenance {
+  return {
+    version: "kab.provenance.v1",
+    protocol: provenance.protocol,
+    rootCorrelationId: sanitizeIdentifier(
+      provenance.rootCorrelationId,
+      maxIdentifierLength,
+      "provenance.rootCorrelationId",
+    ),
+    ...(provenance.parentCorrelationId
+      ? {
+          parentCorrelationId: sanitizeIdentifier(
+            provenance.parentCorrelationId,
+            maxIdentifierLength,
+            "provenance.parentCorrelationId",
+          ),
+        }
+      : {}),
+    ...(provenance.principal
+      ? {
+          principal: {
+            issuer: sanitizeIdentifier(
+              provenance.principal.issuer,
+              maxIdentifierLength,
+              "provenance.principal.issuer",
+            ),
+            subject: sanitizeIdentifier(
+              provenance.principal.subject,
+              maxIdentifierLength,
+              "provenance.principal.subject",
+            ),
+            authenticationMethod: sanitizeIdentifier(
+              provenance.principal.authenticationMethod,
+              maxIdentifierLength,
+              "provenance.principal.authenticationMethod",
+            ),
+            ...(provenance.principal.clientId
+              ? {
+                  clientId: sanitizeIdentifier(
+                    provenance.principal.clientId,
+                    maxIdentifierLength,
+                    "provenance.principal.clientId",
+                  ),
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 function validateScope(scope: AuditScope): void {

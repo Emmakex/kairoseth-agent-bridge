@@ -1,4 +1,5 @@
 import type { SupportedLocale } from "../../core/contracts.js";
+import { createInvocationProvenance } from "../../core/provenance.js";
 import type { A2AExecutionContext } from "./execution-contracts.js";
 
 const MAX_ID_LENGTH = 256;
@@ -46,6 +47,9 @@ export type A2APrincipalBindingResolver = (
 export interface A2AIdentityMappingRequest {
   principal: A2AVerifiedTransportPrincipal;
   correlationId: string;
+  /** Trusted lineage supplied/validated by the host for agent-to-agent calls. */
+  rootCorrelationId?: string | undefined;
+  parentCorrelationId?: string | undefined;
   activatedExtensions: readonly string[];
   locale?: SupportedLocale | undefined;
   approvalToken?: string | undefined;
@@ -79,6 +83,18 @@ export class A2AIdentityMapper {
     }
     if (!boundedString(request.correlationId, MAX_ID_LENGTH)) {
       return { mapped: false, reason: "A2A correlation ID is invalid." };
+    }
+    if (
+      request.rootCorrelationId !== undefined &&
+      !boundedString(request.rootCorrelationId, MAX_ID_LENGTH)
+    ) {
+      return { mapped: false, reason: "A2A root correlation ID is invalid." };
+    }
+    if (
+      request.parentCorrelationId !== undefined &&
+      !boundedString(request.parentCorrelationId, MAX_ID_LENGTH)
+    ) {
+      return { mapped: false, reason: "A2A parent correlation ID is invalid." };
     }
     if (!validExtensions(request.activatedExtensions)) {
       return {
@@ -123,6 +139,28 @@ export class A2AIdentityMapper {
       metadata["a2a.auth.scopes"] = principal.scopes.join(" ");
     }
 
+    let provenance;
+    try {
+      provenance = createInvocationProvenance({
+        protocol: "a2a",
+        correlationId: request.correlationId,
+        ...(request.rootCorrelationId
+          ? { rootCorrelationId: request.rootCorrelationId }
+          : {}),
+        ...(request.parentCorrelationId
+          ? { parentCorrelationId: request.parentCorrelationId }
+          : {}),
+        principal: {
+          issuer: principal.issuer,
+          subject: principal.subject,
+          authenticationMethod: principal.authenticationMethod,
+          ...(principal.clientId ? { clientId: principal.clientId } : {}),
+        },
+      });
+    } catch {
+      return { mapped: false, reason: "A2A invocation provenance is invalid." };
+    }
+
     return {
       mapped: true,
       context: {
@@ -135,6 +173,7 @@ export class A2AIdentityMapper {
           tenantId: binding.tenantId,
           installationId: binding.installationId,
           delegationRequired: binding.delegationRequired,
+          provenance,
           ...(request.approvalToken
             ? { approvalToken: request.approvalToken }
             : {}),
