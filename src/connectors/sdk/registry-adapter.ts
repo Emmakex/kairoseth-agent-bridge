@@ -5,6 +5,10 @@ import {
   ConnectorTimeoutError,
   ConnectorTransientError,
 } from "./errors.js";
+import {
+  ConnectorCircuitBreaker,
+  connectorCircuitKey,
+} from "./circuit-breaker.js";
 import type {
   ConnectorDefinition,
   ConnectorHealthResult,
@@ -22,6 +26,8 @@ export interface ConnectorRegistryAdapterOptions {
   defaultToolTimeoutMs?: number | undefined;
   defaultHealthTimeoutMs?: number | undefined;
   sleep?: ((delayMs: number) => Promise<void>) | undefined;
+  /** Set false only when an outer execution layer provides equivalent isolation. */
+  circuitBreaker?: ConnectorCircuitBreaker | false | undefined;
 }
 
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
@@ -31,6 +37,7 @@ export class ConnectorRegistryAdapter {
   private readonly defaultToolTimeoutMs: number;
   private readonly defaultHealthTimeoutMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
+  private readonly circuitBreaker: ConnectorCircuitBreaker | null;
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -41,6 +48,10 @@ export class ConnectorRegistryAdapter {
     this.defaultHealthTimeoutMs =
       options.defaultHealthTimeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS;
     this.sleep = options.sleep ?? defaultSleep;
+    this.circuitBreaker =
+      options.circuitBreaker === false
+        ? null
+        : options.circuitBreaker ?? new ConnectorCircuitBreaker();
 
     validateTimeout(this.defaultToolTimeoutMs, "default tool timeout");
     validateTimeout(this.defaultHealthTimeoutMs, "default health timeout");
@@ -135,11 +146,17 @@ export class ConnectorRegistryAdapter {
     const timeoutMs = tool.behavior?.timeoutMs ?? this.defaultToolTimeoutMs;
     const retry = normalizeRetry(tool.behavior?.retry);
     const idempotencyKey = deriveIdempotencyKey(tool, input);
+    const circuitKey = connectorCircuitKey(
+      instance.connector.manifest.id,
+      instance.instanceId,
+      tool.id,
+    );
+    this.circuitBreaker?.beforeRequest(circuitKey);
     let attempt = 1;
 
     while (true) {
       try {
-        return await this.executeAttempt(
+        const output = await this.executeAttempt(
           instance,
           tool,
           input,
@@ -148,19 +165,29 @@ export class ConnectorRegistryAdapter {
           attempt,
           idempotencyKey,
         );
+        this.circuitBreaker?.recordSuccess(circuitKey);
+        return output;
       } catch (error) {
         const shouldRetry =
           error instanceof ConnectorTransientError &&
           retry.mode === "transient" &&
           attempt < retry.maxAttempts;
 
-        if (!shouldRetry) {
-          throw error;
+        if (shouldRetry) {
+          const delayMs = retryDelayMs(retry, attempt);
+          await this.sleep(delayMs);
+          attempt += 1;
+          continue;
         }
 
-        const delayMs = retryDelayMs(retry, attempt);
-        await this.sleep(delayMs);
-        attempt += 1;
+        if (error instanceof ConnectorTransientError) {
+          this.circuitBreaker?.recordFailure(circuitKey);
+        } else {
+          // A non-transient/business/configuration response proves the backend
+          // path did not fail in the availability sense tracked by the breaker.
+          this.circuitBreaker?.recordSuccess(circuitKey);
+        }
+        throw error;
       }
     }
   }
