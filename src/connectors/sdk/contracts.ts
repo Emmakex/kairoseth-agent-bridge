@@ -119,7 +119,7 @@ export type ConnectorCredentialRotationRuntimeStatus =
   | "blocked";
 
 export type ConnectorCredentialRotationFailureReason =
-  | "refresh_failed"
+  | "apply_failed"
   | "timeout";
 
 export interface ConnectorCredentialRotationState {
