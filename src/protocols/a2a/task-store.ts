@@ -1,3 +1,4 @@
+import type { InvocationProvenance } from "../../core/contracts.js";
 import type { A2ATask } from "./execution-contracts.js";
 
 export interface A2ATaskScope {
@@ -11,6 +12,8 @@ export interface A2AStoredInvocation {
   input: unknown;
   correlationId: string;
   actionFingerprint: string;
+  /** Original safe lineage must survive approval pauses/resumes unchanged. */
+  provenance?: InvocationProvenance | undefined;
 }
 
 export interface A2AStoredTask {
