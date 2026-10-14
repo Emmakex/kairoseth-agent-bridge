@@ -98,7 +98,7 @@ test("hard health timeout returns even when a connector ignores AbortSignal", as
   });
   const hanging = instance(
     "hanging",
-    definition(async () => await new Promise(() => undefined)),
+    definition(async () => await new Promise<never>(() => undefined)),
   );
 
   adapter.register(hanging);
