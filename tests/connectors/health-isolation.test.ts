@@ -76,7 +76,7 @@ test("health probe exceptions become isolated unhealthy results without leaking 
   const adapter = new ConnectorRegistryAdapter(registry);
   const broken = instance(
     "broken",
-    definition(async () => {
+    definition(() => {
       throw new Error("password=do-not-leak");
     }),
   );
