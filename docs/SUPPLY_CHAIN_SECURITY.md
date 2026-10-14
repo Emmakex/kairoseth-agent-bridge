@@ -4,7 +4,7 @@
 
 ### Objetivo
 
-Phase 6 debe producir evidencia verificable de las dependencias incluidas en cada build, usar instalaciones reproducibles y bloquear vulnerabilidades conocidas de severidad alta o crítica en dependencias de producción.
+Phase 6 debe producir evidencia verificable de las dependencias incluidas en cada build, usar instalaciones reproducibles y detectar vulnerabilidades tanto en dependencias como en el código JavaScript/TypeScript del bridge.
 
 ### Baseline actual
 
@@ -18,6 +18,8 @@ Después de la instalación bloqueada, CI ejecuta:
 4. `npm audit --omit=dev --audit-level=high`;
 5. publicación del SBOM como artefacto de GitHub Actions durante 30 días.
 
+Además, un workflow CodeQL independiente analiza JavaScript/TypeScript con la suite `security-extended` en pull requests hacia `main`, pushes a `main` y una ejecución semanal. Esto añade análisis estático de vulnerabilidades de código sin sustituir los tests ni el audit de dependencias.
+
 `actions/setup-node` usa cache de npm, pero la resolución autorizada sigue determinada por el lockfile y `npm ci` rechaza incoherencias entre `package.json` y `package-lock.json`.
 
 El SBOM no contiene secretos de runtime ni credenciales de conectores. Describe el árbol de paquetes instalado en la ejecución.
@@ -26,22 +28,23 @@ El SBOM no contiene secretos de runtime ni credenciales de conectores. Describe 
 
 - El lockfile fija las versiones resueltas e integridades de paquetes para instalaciones reproducibles.
 - `npm ci` no actualiza silenciosamente el lockfile durante CI.
-- El audit se aplica a dependencias de producción; las devDependencies siguen cubiertas por actualización/revisión pero no bloquean el runtime por sí solas.
-- Un hallazgo `high` o `critical` en dependencias de producción hace fallar CI.
-- Generar un SBOM no equivale a firmar un release. La firma/atestación del artefacto de release es un control separado.
+- `npm audit` bloquea hallazgos `high` o `critical` en dependencias de producción.
+- CodeQL cubre patrones vulnerables del código JavaScript/TypeScript y usa `security-extended` para ampliar la señal más allá de la suite por defecto.
+- Los hallazgos de CodeQL quedan en GitHub code scanning para triage y seguimiento; no convierten el análisis estático en una autoridad de runtime.
+- Generar un SBOM o ejecutar CodeQL no equivale a firmar un release. La firma/atestación del artefacto publicado es un control separado.
 
 ### Siguiente endurecimiento
 
 1. ligar SBOM y checksum al artefacto de release;
-2. añadir atestación/firma del release;
+2. añadir atestación/firma verificable del release;
 3. conservar hash, procedencia y metadatos verificables del artefacto publicado;
-4. añadir scanning adicional del código/dependencias cuando aporte señal distinta al audit actual.
+4. mantener el scanning actualizado sin debilitar los gates de runtime, tests y policy.
 
 ## EN
 
 ### Goal
 
-Phase 6 must produce verifiable evidence of the dependencies included in each build, use reproducible installs, and block known high/critical vulnerabilities in production dependencies.
+Phase 6 must produce verifiable evidence of the dependencies included in each build, use reproducible installs, and detect vulnerabilities both in dependencies and in the bridge JavaScript/TypeScript source.
 
 ### Current baseline
 
@@ -55,6 +58,8 @@ After the locked install, CI performs:
 4. `npm audit --omit=dev --audit-level=high`;
 5. upload of the SBOM as a GitHub Actions artifact retained for 30 days.
 
+An independent CodeQL workflow also analyzes JavaScript/TypeScript with the `security-extended` suite on pull requests targeting `main`, pushes to `main`, and a weekly scheduled run. This adds static vulnerability analysis without replacing tests or dependency auditing.
+
 `actions/setup-node` uses npm caching, while authorized dependency resolution remains determined by the lockfile and `npm ci` rejects mismatches between `package.json` and `package-lock.json`.
 
 The SBOM contains no runtime secrets or connector credentials. It describes the package tree installed for that workflow run.
@@ -63,13 +68,14 @@ The SBOM contains no runtime secrets or connector credentials. It describes the 
 
 - The lockfile fixes resolved package versions and integrity hashes for reproducible installs.
 - `npm ci` does not silently rewrite the lockfile during CI.
-- The blocking audit applies to production dependencies; devDependencies remain subject to maintenance/review but do not independently block runtime production risk.
-- A `high` or `critical` production dependency finding fails CI.
-- Generating an SBOM is not the same as signing a release. Release artifact signing/attestation is a separate control.
+- `npm audit` blocks `high` or `critical` findings in production dependencies.
+- CodeQL covers vulnerable patterns in JavaScript/TypeScript source and uses `security-extended` for signal beyond the default query suite.
+- CodeQL findings remain in GitHub code scanning for triage and tracking; static analysis does not become a runtime authority.
+- Generating an SBOM or running CodeQL is not the same as signing a release. Release artifact signing/attestation remains a separate control.
 
 ### Next hardening step
 
 1. bind SBOM and checksum to the release artifact;
-2. add release signing/attestation;
+2. add verifiable release signing/attestation;
 3. retain verifiable artifact hash, provenance, and publication metadata;
-4. add further code/dependency scanning where it provides signal beyond the current audit gate.
+4. keep scanning current without weakening runtime, test, or policy gates.
