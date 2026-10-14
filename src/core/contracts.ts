@@ -59,7 +59,7 @@ export interface InvocationContext {
    */
   delegationRequired?: boolean;
   /** Safe lineage only. Never place credentials or raw tokens in provenance. */
-  provenance?: InvocationProvenance;
+  provenance?: InvocationProvenance | undefined;
   metadata?: Readonly<Record<string, string>>;
 }
 
