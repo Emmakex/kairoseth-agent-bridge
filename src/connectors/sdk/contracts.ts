@@ -4,6 +4,7 @@ import type {
   SupportedLocale,
   ToolLocalizations,
 } from "../../core/contracts.js";
+import type { ConnectorCircuitSnapshot } from "./circuit-breaker.js";
 
 export type JsonSchemaPrimitiveType =
   | "null"
@@ -164,6 +165,34 @@ export interface ConnectorHealthContext {
   config: Readonly<Record<string, unknown>>;
   secrets: ConnectorSecretProvider;
   signal: AbortSignal;
+}
+
+export type ConnectorToolAvailabilityStatus =
+  | "available"
+  | "degraded"
+  | "blocked";
+
+export interface ConnectorToolHealthSnapshot {
+  /** Connector-local tool ID. */
+  toolId: string;
+  /** Fully namespaced ToolRegistry ID. */
+  runtimeToolId: string;
+  availability: ConnectorToolAvailabilityStatus;
+  /** Omitted only when circuit breakers are explicitly disabled by deployment. */
+  circuit?: ConnectorCircuitSnapshot | undefined;
+}
+
+/**
+ * Operational, read-only health view for one connector instance.
+ * It combines the connector probe with per-tool availability isolation.
+ */
+export interface ConnectorInstanceHealthSnapshot {
+  connectorId: string;
+  connectorInstanceId: string;
+  status: ConnectorHealthStatus;
+  checkedAt: string;
+  probe: ConnectorHealthResult;
+  tools: readonly ConnectorToolHealthSnapshot[];
 }
 
 export interface ConnectorDefinition {
