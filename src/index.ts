@@ -54,3 +54,5 @@ export * from "./security/approval-keys.js";
 export * from "./security/approval-replay.js";
 export * from "./security/approval.js";
 export * from "./security/canonical-json.js";
+export * from "./storage/encrypted-local-queue.js";
+export * from "./storage/local-queue-key-provider.js";
