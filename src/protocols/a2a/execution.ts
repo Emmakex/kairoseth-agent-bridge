@@ -15,7 +15,6 @@ import type {
   A2AExecutionContext,
   A2AGetTaskRequest,
   A2AMessage,
-  A2APart,
   A2ASendMessageRequest,
   A2ASendMessageResponse,
   A2ATask,
@@ -26,7 +25,6 @@ import { A2AExecutionError } from "./execution-contracts.js";
 import {
   InMemoryA2ATaskStore,
   type A2AStoredInvocation,
-  type A2AStoredTask,
   type A2ATaskScope,
   type A2ATaskStore,
 } from "./task-store.js";
@@ -131,6 +129,7 @@ export class A2AToolExecutionAdapter {
     const locale = context.locale ?? this.defaultLocale;
     validateTrustedContext(context, locale);
     validateSendRequestShape(request, locale);
+    validateRequestedTenant(request.tenant, context.invocation.tenantId, locale);
     requireActivatedExtension(request.message, context, locale);
     const parsed = this.parseInvocation(request.message, locale);
     const scope = scopeFrom(context.invocation);
@@ -169,6 +168,7 @@ export class A2AToolExecutionAdapter {
     const locale = context.locale ?? this.defaultLocale;
     validateTrustedContext(context, locale);
     validateTaskRequest(request, locale);
+    validateRequestedTenant(request.tenant, context.invocation.tenantId, locale);
     const record = await this.taskStore.get(
       validateId(request.id, locale),
       scopeFrom(context.invocation),
@@ -371,7 +371,28 @@ export class A2AToolExecutionAdapter {
 
     switch (result.status) {
       case "executed": {
-        const output = normalizeJsonOutput(result.output, this.maxOutputBytes, locale);
+        let output: unknown;
+        try {
+          output = normalizeJsonOutput(
+            result.output,
+            this.maxOutputBytes,
+            locale,
+          );
+        } catch {
+          return {
+            ...base,
+            status: {
+              state: "TASK_STATE_FAILED",
+              timestamp: this.timestamp(),
+              message: this.statusMessage(
+                taskId,
+                contextId,
+                MESSAGES[locale].failed,
+                "KAIROSETH_OUTPUT_UNAVAILABLE",
+              ),
+            },
+          };
+        }
         const artifact: A2AArtifact = {
           artifactId: this.generateId(locale),
           name: MESSAGES[locale].resultName,
@@ -584,6 +605,16 @@ function validateTaskRequest(
     request.historyLength !== undefined &&
     (!Number.isInteger(request.historyLength) || request.historyLength < 0)
   ) {
+    fail("INVALID_REQUEST", locale);
+  }
+}
+
+function validateRequestedTenant(
+  requestedTenant: string | undefined,
+  trustedTenant: string,
+  locale: SupportedLocale,
+): void {
+  if (requestedTenant !== undefined && requestedTenant !== trustedTenant) {
     fail("INVALID_REQUEST", locale);
   }
 }
