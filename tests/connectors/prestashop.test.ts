@@ -32,15 +32,19 @@ function register(http: GenericRestHttpRuntime, baseUrl = "https://shop.example.
   return { registry, connector };
 }
 
-test("PrestaShop connector exposes five READ tools with ES/EN metadata", () => {
+test("PrestaShop connector exposes six READ and two WRITE tools with ES/EN metadata", () => {
   const connector = createPrestaShopConnector();
   assert.equal(connector.manifest.id, "prestashop");
-  assert.equal(connector.tools.length, 5);
-  assert.ok(connector.tools.every((tool) => tool.risk === "READ"));
+  assert.equal(connector.tools.length, 8);
+  assert.equal(connector.tools.filter((tool) => tool.risk === "READ").length, 6);
+  assert.equal(connector.tools.filter((tool) => tool.risk === "WRITE").length, 2);
   assert.deepEqual(connector.manifest.capabilities, [
     "orders.read",
+    "orders.write",
+    "order-states.read",
     "products.read",
     "stock.read",
+    "stock.write",
   ]);
   assert.match(
     connector.manifest.localizations?.es?.description ?? "",
@@ -137,6 +141,34 @@ test("PrestaShop order response redacts secure_key recursively", async () => {
   }
 });
 
+test("PrestaShop order-states.list exposes configured order state IDs", async () => {
+  let seenUrl = "";
+  const http: GenericRestHttpRuntime = {
+    async resolveHost() {
+      return ["93.184.216.34"];
+    },
+    async fetch(input) {
+      seenUrl = input;
+      return new Response(
+        JSON.stringify({ order_states: [{ id: 2, name: "Payment accepted" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  };
+  const { registry } = register(http);
+  const result = await new BridgeRuntime({ registry }).invoke(
+    "prestashop.store.order-states.list",
+    { offset: 0, limit: 25 },
+    { correlationId: "corr-ps-states", actor: "agent-ps" },
+  );
+
+  assert.equal(result.status, "executed");
+  const url = new URL(seenUrl);
+  assert.equal(url.pathname, "/api/order_states");
+  assert.equal(url.searchParams.get("display"), "full");
+  assert.equal(url.searchParams.get("limit"), "0,25");
+});
+
 test("PrestaShop stock.get-by-product queries StockAvailable with controlled filters", async () => {
   let seenUrl = "";
   const http: GenericRestHttpRuntime = {
@@ -215,5 +247,13 @@ test("PrestaShop MCP discovery is localized ES/EN", () => {
   assert.equal(
     mcp.getTool("prestashop.store.stock.get-by-product", "en")?.title,
     "Get PrestaShop stock by product",
+  );
+  assert.equal(
+    mcp.getTool("prestashop.store.order-states.list", "es")?.title,
+    "Listar estados de pedido de PrestaShop",
+  );
+  assert.equal(
+    mcp.getTool("prestashop.store.order-states.list", "en")?.title,
+    "List PrestaShop order states",
   );
 });
