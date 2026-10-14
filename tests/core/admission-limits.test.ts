@@ -182,7 +182,11 @@ test("missing trusted scope fails closed for a configured scoped rule", async ()
   const decision = await policy.evaluate(
     tool("demo.read"),
     {},
-    context({ tenantId: undefined }),
+    {
+      correlationId: "corr-no-tenant",
+      actor: "agent-1",
+      installationId: "installation-1",
+    },
   );
   assert.equal(decision.outcome, "DENY");
   assert.match(decision.reason, /trusted scope.*unavailable/i);
