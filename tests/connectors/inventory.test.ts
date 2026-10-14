@@ -92,7 +92,7 @@ test("connector inventory is deterministic, localized and metadata-only", () => 
   assert.equal(inventory[0]?.tools[0]?.localizations?.en?.name, "products.list EN");
   assert.equal(
     inventory[0]?.tools[0]?.runtimeToolId,
-    "connector.prestashop.shop-a.products.list",
+    "prestashop.shop-a.products.list",
   );
 
   const serialized = JSON.stringify(inventory);
