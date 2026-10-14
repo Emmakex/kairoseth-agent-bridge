@@ -36,6 +36,8 @@ export * from "./core/policy.js";
 export * from "./core/registry.js";
 export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
+export * from "./protocols/a2a/adapter.js";
+export * from "./protocols/a2a/contracts.js";
 export * from "./protocols/mcp/adapter.js";
 export * from "./protocols/mcp/contracts.js";
 export * from "./protocols/mcp/server.js";
