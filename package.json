@@ -3,7 +3,7 @@
   "version": "0.1.0-dev.0",
   "private": true,
   "type": "module",
-  "description": "Universal Agent Integration Gateway runtime for Kairoseth",
+  "description": "Technical Agent Bridge runtime powering Integración de agentes de IA / AI Integration in Kairoseth Platform",
   "engines": {
     "node": ">=22.0.0"
   },
