@@ -158,12 +158,26 @@ Deployment may use a WordPress/WooCommerce connector plugin, hosted runtime, or 
 
 ### PrestaShop
 
-Initial direction:
+Initial surface status: **READ complete / WRITE pending**
 
-- [ ] native module/connector
-- [ ] normalized product/order/customer tools
-- [ ] sidecar/local runtime support when local access is required
-- [ ] publish ES/EN titles and descriptions for all official tools
+- [x] Add official connector over Connector SDK and shared network guardrails
+- [x] Use native PrestaShop Webservice `/api/`
+- [x] Authenticate with SecretProvider Webservice key via Basic Auth without putting the key in URLs
+- [x] Support root and subfolder PrestaShop installations
+- [x] list/get orders — READ
+- [x] list/get products — READ
+- [x] get stock by product/combination through `stock_availables` — READ
+- [x] Publish ES/EN titles/descriptions for tools, manifest and credential setup metadata
+- [x] Add PrestaShop auth/routing/filter/stock/redaction tests
+- [x] Document PrestaShop READ baseline in ES/EN
+- [ ] update order status through an allowlisted WRITE tool
+- [ ] update StockAvailable through an allowlisted WRITE tool
+- [ ] Add approval/idempotency acceptance coverage for PrestaShop mutations
+- [ ] Add customer READ tools only when a concrete product workflow requires customer data
+
+Future PrestaShop expansion must use separate allowlisted tools rather than exposing an arbitrary Webservice resource client.
+
+Deployment may use a native PrestaShop module, hosted runtime, or sidecar/local runtime depending on hosting and network access requirements.
 
 ### MySQL
 
