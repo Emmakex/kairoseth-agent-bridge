@@ -31,6 +31,7 @@ const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1_048_576;
 const ABSOLUTE_MAX_RESPONSE_BYTES = 10 * 1_048_576;
 const WEBSERVICE_REQUIREMENT_ID = "prestashop_webservice";
 const WEBSERVICE_KEY_FIELD = "webservice_key";
+const MAX_ABSOLUTE_STOCK = 999_999_999;
 const SENSITIVE_KEYS = new Set([
   "secure_key",
   "passwd",
@@ -60,6 +61,26 @@ const TOOL_LOCALIZATIONS: Readonly<Record<string, ToolLocalizations>> = {
     es: {
       name: "Obtener pedido de PrestaShop",
       description: "Obtiene un pedido de PrestaShop por ID numérico.",
+    },
+  },
+  "order-states.list": {
+    en: {
+      name: "List PrestaShop order states",
+      description: "List the order-state IDs and localized state metadata configured by the shop.",
+    },
+    es: {
+      name: "Listar estados de pedido de PrestaShop",
+      description: "Lista los IDs y metadatos localizados de los estados de pedido configurados en la tienda.",
+    },
+  },
+  "orders.update-status": {
+    en: {
+      name: "Update PrestaShop order status",
+      description: "Create an OrderHistory transition using PrestaShop business logic for one order.",
+    },
+    es: {
+      name: "Actualizar estado de pedido de PrestaShop",
+      description: "Crea una transición OrderHistory usando la lógica de negocio de PrestaShop para un pedido.",
     },
   },
   "products.list": {
@@ -92,6 +113,16 @@ const TOOL_LOCALIZATIONS: Readonly<Record<string, ToolLocalizations>> = {
       description: "Consulta registros StockAvailable para un producto y una combinación opcional.",
     },
   },
+  "stock.update-quantity": {
+    en: {
+      name: "Update PrestaShop stock quantity",
+      description: "Set one StockAvailable quantity after verifying its expected product and combination.",
+    },
+    es: {
+      name: "Actualizar cantidad de stock de PrestaShop",
+      description: "Fija la cantidad de un StockAvailable tras verificar su producto y combinación esperados.",
+    },
+  },
 };
 
 export function createPrestaShopConnector(
@@ -106,7 +137,7 @@ export function createPrestaShopConnector(
   };
 
   const tools: ConnectorToolDefinition[] = [
-    makeTool(
+    makeReadTool(
       "orders.list",
       "List PrestaShop orders",
       "List PrestaShop orders using controlled Webservice filters.",
@@ -136,7 +167,7 @@ export function createPrestaShopConnector(
         );
       },
     ),
-    makeTool(
+    makeReadTool(
       "orders.get",
       "Get PrestaShop order",
       "Retrieve one PrestaShop order by numeric ID.",
@@ -156,7 +187,30 @@ export function createPrestaShopConnector(
         );
       },
     ),
-    makeTool(
+    makeReadTool(
+      "order-states.list",
+      "List PrestaShop order states",
+      "List the order-state IDs and localized state metadata configured by the shop.",
+      pagedListSchema(),
+      async (input, context) => {
+        const normalized = normalizePagedListInput(input, "order states list");
+        return await executeRead(
+          "/api/order_states",
+          new URLSearchParams({
+            output_format: "JSON",
+            display: "full",
+            limit: `${normalized.offset},${normalized.limit}`,
+          }),
+          context.config,
+          context.secrets,
+          context.signal,
+          network,
+          runtime,
+          maxResponseBytes,
+        );
+      },
+    ),
+    makeReadTool(
       "products.list",
       "List PrestaShop products",
       "List PrestaShop products using controlled catalog filters.",
@@ -186,7 +240,7 @@ export function createPrestaShopConnector(
         );
       },
     ),
-    makeTool(
+    makeReadTool(
       "products.get",
       "Get PrestaShop product",
       "Retrieve one PrestaShop product by numeric ID.",
@@ -206,7 +260,7 @@ export function createPrestaShopConnector(
         );
       },
     ),
-    makeTool(
+    makeReadTool(
       "stock.get-by-product",
       "Get PrestaShop stock by product",
       "Read StockAvailable records for one product and optional combination.",
@@ -236,13 +290,81 @@ export function createPrestaShopConnector(
         );
       },
     ),
+    makeWriteTool(
+      "orders.update-status",
+      "Update PrestaShop order status",
+      "Create an OrderHistory transition using PrestaShop business logic for one order.",
+      orderStatusUpdateSchema(),
+      { mode: "none" },
+      async (input, context) => {
+        const normalized = normalizeOrderStatusUpdateInput(input);
+        const query = new URLSearchParams({
+          output_format: "JSON",
+          sendemail: normalized.sendEmail ? "1" : "0",
+        });
+        const body = orderHistoryXml(normalized.orderId, normalized.orderStateId);
+        return await executeWrite(
+          "POST",
+          "/api/order_histories",
+          query,
+          body,
+          context.config,
+          context.secrets,
+          context.signal,
+          network,
+          runtime,
+          maxResponseBytes,
+        );
+      },
+    ),
+    makeWriteTool(
+      "stock.update-quantity",
+      "Update PrestaShop stock quantity",
+      "Set one StockAvailable quantity after verifying its expected product and combination.",
+      stockUpdateSchema(),
+      { mode: "intrinsic" },
+      async (input, context) => {
+        const normalized = normalizeStockUpdateInput(input);
+        const verification = await executeRead(
+          `/api/stock_availables/${normalized.stockAvailableId}`,
+          new URLSearchParams({ output_format: "JSON" }),
+          context.config,
+          context.secrets,
+          context.signal,
+          network,
+          runtime,
+          maxResponseBytes,
+        );
+        assertStockTarget(
+          verification.body,
+          normalized.stockAvailableId,
+          normalized.productId,
+          normalized.productAttributeId,
+        );
+        return await executeWrite(
+          "PATCH",
+          `/api/stock_availables/${normalized.stockAvailableId}`,
+          new URLSearchParams({ output_format: "JSON" }),
+          stockAvailableQuantityXml(
+            normalized.stockAvailableId,
+            normalized.quantity,
+          ),
+          context.config,
+          context.secrets,
+          context.signal,
+          network,
+          runtime,
+          maxResponseBytes,
+        );
+      },
+    ),
   ];
 
   return {
     manifest: {
       id: "prestashop",
       name: "PrestaShop",
-      version: "1.0.0",
+      version: "1.1.0",
       description:
         "Kairoseth connector for PrestaShop orders, products and StockAvailable through the native Webservice API.",
       localizations: {
@@ -257,7 +379,14 @@ export function createPrestaShopConnector(
             "Conector Kairoseth para pedidos, productos y StockAvailable de PrestaShop mediante el Webservice nativo.",
         },
       },
-      capabilities: ["orders.read", "products.read", "stock.read"],
+      capabilities: [
+        "orders.read",
+        "orders.write",
+        "order-states.read",
+        "products.read",
+        "stock.read",
+        "stock.write",
+      ],
       configSchema: {
         type: "object",
         properties: {
@@ -328,7 +457,7 @@ export function createPrestaShopConnector(
   };
 }
 
-function makeTool(
+function makeReadTool(
   id: string,
   name: string,
   description: string,
@@ -352,6 +481,32 @@ function makeTool(
   };
 }
 
+function makeWriteTool(
+  id: string,
+  name: string,
+  description: string,
+  inputSchema: JsonSchema,
+  idempotency: { mode: "none" | "intrinsic" },
+  execute: ConnectorToolDefinition["execute"],
+): ConnectorToolDefinition {
+  return {
+    id,
+    name,
+    description,
+    ...(TOOL_LOCALIZATIONS[id]
+      ? { localizations: TOOL_LOCALIZATIONS[id] }
+      : {}),
+    risk: "WRITE",
+    inputSchema,
+    outputSchema: { type: "object", additionalProperties: true },
+    behavior: {
+      retry: { mode: "never" },
+      idempotency,
+    },
+    execute,
+  };
+}
+
 async function executeRead(
   path: string,
   query: URLSearchParams,
@@ -361,6 +516,61 @@ async function executeRead(
   network: GenericRestNetworkPolicy,
   runtime: GenericRestHttpRuntime,
   maxResponseBytes: number,
+): Promise<{ status: number; ok: true; body: unknown }> {
+  return await executeRequest(
+    "GET",
+    path,
+    query,
+    undefined,
+    config,
+    secrets,
+    signal,
+    network,
+    runtime,
+    maxResponseBytes,
+    true,
+  );
+}
+
+async function executeWrite(
+  method: "POST" | "PATCH",
+  path: string,
+  query: URLSearchParams,
+  body: string,
+  config: Readonly<Record<string, unknown>>,
+  secrets: { getSecret(requirementId: string, fieldId: string): Promise<string | null> },
+  signal: AbortSignal,
+  network: GenericRestNetworkPolicy,
+  runtime: GenericRestHttpRuntime,
+  maxResponseBytes: number,
+): Promise<{ status: number; ok: true; body: unknown }> {
+  return await executeRequest(
+    method,
+    path,
+    query,
+    body,
+    config,
+    secrets,
+    signal,
+    network,
+    runtime,
+    maxResponseBytes,
+    false,
+  );
+}
+
+async function executeRequest(
+  method: "GET" | "POST" | "PATCH",
+  path: string,
+  query: URLSearchParams,
+  body: string | undefined,
+  config: Readonly<Record<string, unknown>>,
+  secrets: { getSecret(requirementId: string, fieldId: string): Promise<string | null> },
+  signal: AbortSignal,
+  network: GenericRestNetworkPolicy,
+  runtime: GenericRestHttpRuntime,
+  maxResponseBytes: number,
+  transientSafe: boolean,
 ): Promise<{ status: number; ok: true; body: unknown }> {
   const baseUrl = await validateGenericRestBaseUrl(config.baseUrl, network, runtime);
   const url = buildGenericRestUrl(baseUrl, path);
@@ -377,21 +587,29 @@ async function executeRead(
     accept: "application/json",
     authorization: `Basic ${Buffer.from(`${key}:`, "utf8").toString("base64")}`,
   });
+  if (body !== undefined) {
+    headers.set("content-type", "application/xml; charset=utf-8");
+  }
 
   let response: Response;
   try {
     response = await runtime.fetch(url.toString(), {
-      method: "GET",
+      method,
       headers,
+      ...(body !== undefined ? { body } : {}),
       redirect: "manual",
       signal,
     });
   } catch (error) {
     if (signal.aborted) throw error;
-    throw new ConnectorTransientError(
-      `PrestaShop request failed before receiving a response for ${path}.`,
-      { cause: error },
-    );
+    const message =
+      method === "GET"
+        ? `PrestaShop request failed before receiving a response for ${path}.`
+        : `PrestaShop mutation outcome is uncertain for ${path}; automatic retry is disabled.`;
+    if (transientSafe) {
+      throw new ConnectorTransientError(message, { cause: error });
+    }
+    throw new ConnectorError(message, { cause: error });
   }
 
   if (response.status >= 300 && response.status < 400) {
@@ -401,16 +619,19 @@ async function executeRead(
     );
   }
 
-  const body = await readBoundedJson(response, maxResponseBytes);
+  const responseBody = await readBoundedJson(response, maxResponseBytes);
   if (!response.ok) {
     const message = `PrestaShop request returned HTTP ${response.status}.`;
-    if (response.status === 408 || response.status === 429 || response.status >= 500) {
+    if (
+      transientSafe &&
+      (response.status === 408 || response.status === 429 || response.status >= 500)
+    ) {
       throw new ConnectorTransientError(message);
     }
     throw new ConnectorError(message);
   }
 
-  return { status: response.status, ok: true, body };
+  return { status: response.status, ok: true, body: responseBody };
 }
 
 async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown> {
@@ -418,7 +639,7 @@ async function readBoundedJson(response: Response, maxBytes: number): Promise<un
   if (declared && Number(declared) > maxBytes) {
     throw new ConnectorError(`PrestaShop response exceeds ${maxBytes} bytes.`);
   }
-  if (!response.body) return null;
+  if (!response.body || response.status === 204 || response.status === 205) return null;
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -496,6 +717,17 @@ function normalizeOrdersListInput(input: unknown): {
   };
 }
 
+function normalizePagedListInput(
+  input: unknown,
+  label: string,
+): { offset: number; limit: number } {
+  const record = requireExactObject(input, ["offset", "limit"], label);
+  return {
+    offset: optionalNonNegativeInteger(record.offset, "offset") ?? 0,
+    limit: optionalBoundedLimit(record.limit) ?? 50,
+  };
+}
+
 function normalizeProductsListInput(input: unknown): {
   offset: number;
   limit: number;
@@ -550,6 +782,96 @@ function normalizeStockInput(input: unknown): {
   };
 }
 
+function normalizeOrderStatusUpdateInput(input: unknown): {
+  orderId: number;
+  orderStateId: number;
+  sendEmail: boolean;
+} {
+  const record = requireExactObject(
+    input,
+    ["orderId", "orderStateId", "sendEmail"],
+    "order status update",
+  );
+  if (record.sendEmail !== undefined && typeof record.sendEmail !== "boolean") {
+    throw new ConnectorError("PrestaShop sendEmail must be boolean.");
+  }
+  return {
+    orderId: requirePositiveInteger(record.orderId, "orderId"),
+    orderStateId: requirePositiveInteger(record.orderStateId, "orderStateId"),
+    sendEmail: record.sendEmail === true,
+  };
+}
+
+function normalizeStockUpdateInput(input: unknown): {
+  stockAvailableId: number;
+  productId: number;
+  productAttributeId: number;
+  quantity: number;
+} {
+  const record = requireExactObject(
+    input,
+    ["stockAvailableId", "productId", "productAttributeId", "quantity"],
+    "stock quantity update",
+  );
+  const quantity = requireInteger(record.quantity, "quantity");
+  if (Math.abs(quantity) > MAX_ABSOLUTE_STOCK) {
+    throw new ConnectorError(
+      `PrestaShop quantity absolute value cannot exceed ${MAX_ABSOLUTE_STOCK}.`,
+    );
+  }
+  return {
+    stockAvailableId: requirePositiveInteger(
+      record.stockAvailableId,
+      "stockAvailableId",
+    ),
+    productId: requirePositiveInteger(record.productId, "productId"),
+    productAttributeId:
+      record.productAttributeId === undefined
+        ? 0
+        : requireNonNegativeInteger(record.productAttributeId, "productAttributeId"),
+    quantity,
+  };
+}
+
+function assertStockTarget(
+  body: unknown,
+  expectedStockAvailableId: number,
+  expectedProductId: number,
+  expectedProductAttributeId: number,
+): void {
+  const root = requireObjectValue(body, "PrestaShop stock verification response");
+  const stock = requireObjectValue(
+    root.stock_available,
+    "PrestaShop stock_available response",
+  );
+  const actualStockAvailableId = parseApiInteger(stock.id, "stock_available.id");
+  const actualProductId = parseApiInteger(stock.id_product, "stock_available.id_product");
+  const actualProductAttributeId = parseApiInteger(
+    stock.id_product_attribute,
+    "stock_available.id_product_attribute",
+  );
+
+  if (actualStockAvailableId !== expectedStockAvailableId) {
+    throw new ConnectorError("PrestaShop StockAvailable ID verification failed.");
+  }
+  if (
+    actualProductId !== expectedProductId ||
+    actualProductAttributeId !== expectedProductAttributeId
+  ) {
+    throw new ConnectorError(
+      "PrestaShop StockAvailable does not belong to the expected product/combination.",
+    );
+  }
+}
+
+function orderHistoryXml(orderId: number, orderStateId: number): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<prestashop xmlns:xlink="http://www.w3.org/1999/xlink"><order_history><id_order_state><![CDATA[${orderStateId}]]></id_order_state><id_order><![CDATA[${orderId}]]></id_order></order_history></prestashop>`;
+}
+
+function stockAvailableQuantityXml(stockAvailableId: number, quantity: number): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<prestashop xmlns:xlink="http://www.w3.org/1999/xlink"><stock_available><id><![CDATA[${stockAvailableId}]]></id><quantity><![CDATA[${quantity}]]></quantity></stock_available></prestashop>`;
+}
+
 function ordersListSchema(): JsonSchema {
   return {
     type: "object",
@@ -558,6 +880,17 @@ function ordersListSchema(): JsonSchema {
       limit: { type: "integer", minimum: 1, maximum: 100 },
       customerId: { type: "integer", minimum: 1 },
       currentState: { type: "integer", minimum: 1 },
+    },
+    additionalProperties: false,
+  };
+}
+
+function pagedListSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      offset: { type: "integer", minimum: 0 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
     },
     additionalProperties: false,
   };
@@ -588,6 +921,37 @@ function stockSchema(): JsonSchema {
   };
 }
 
+function orderStatusUpdateSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      orderId: { type: "integer", minimum: 1 },
+      orderStateId: { type: "integer", minimum: 1 },
+      sendEmail: { type: "boolean", default: false },
+    },
+    required: ["orderId", "orderStateId"],
+    additionalProperties: false,
+  };
+}
+
+function stockUpdateSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      stockAvailableId: { type: "integer", minimum: 1 },
+      productId: { type: "integer", minimum: 1 },
+      productAttributeId: { type: "integer", minimum: 0, default: 0 },
+      quantity: {
+        type: "integer",
+        minimum: -MAX_ABSOLUTE_STOCK,
+        maximum: MAX_ABSOLUTE_STOCK,
+      },
+    },
+    required: ["stockAvailableId", "productId", "quantity"],
+    additionalProperties: false,
+  };
+}
+
 function idSchema(field: string): JsonSchema {
   return {
     type: "object",
@@ -614,18 +978,34 @@ function requireExactObject(
   return record;
 }
 
-function requirePositiveInteger(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    throw new ConnectorError(`PrestaShop ${field} must be a positive integer.`);
+function requireObjectValue(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConnectorError(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireInteger(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new ConnectorError(`PrestaShop ${field} must be an integer.`);
   }
   return value;
 }
 
+function requirePositiveInteger(value: unknown, field: string): number {
+  const integer = requireInteger(value, field);
+  if (integer < 1) {
+    throw new ConnectorError(`PrestaShop ${field} must be a positive integer.`);
+  }
+  return integer;
+}
+
 function requireNonNegativeInteger(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+  const integer = requireInteger(value, field);
+  if (integer < 0) {
     throw new ConnectorError(`PrestaShop ${field} must be a non-negative integer.`);
   }
-  return value;
+  return integer;
 }
 
 function optionalNonNegativeInteger(value: unknown, field: string): number | undefined {
@@ -637,6 +1017,12 @@ function optionalBoundedLimit(value: unknown): number | undefined {
   const limit = requirePositiveInteger(value, "limit");
   if (limit > 100) throw new ConnectorError("PrestaShop limit cannot exceed 100.");
   return limit;
+}
+
+function parseApiInteger(value: unknown, field: string): number {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return Number(value);
+  throw new ConnectorError(`PrestaShop ${field} is not an integer.`);
 }
 
 function normalizeMaxResponseBytes(value: number | undefined): number {
