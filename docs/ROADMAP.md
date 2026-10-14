@@ -256,16 +256,26 @@ Exit condition achieved: WooCommerce, PrestaShop, MySQL and Files coexist in one
 
 ## Phase 5 — A2A + agent interoperability
 
-Status: **not started**
+Status: **in progress**
 
-- [ ] Implement A2A skill adapter
-- [ ] Add agent identity mapping
+- [x] Implement A2A 1.0 Agent Card / skill discovery adapter over ToolRegistry
+- [x] Reuse the core ES/EN localization contract for A2A Agent Card and skill metadata
+- [x] Add a versioned structured Kairoseth A2A tool-invocation extension profile
+- [x] Route A2A `SendMessage` tool execution through BridgeRuntime policy/approval/audit
+- [x] Map Bridge approval requirements to `TASK_STATE_AUTH_REQUIRED`
+- [x] Add exact actor + tenant + installation task scoping and `GetTask` baseline
+- [x] Preserve original action fingerprint and correlation ID across approved task resume
+- [x] Reject identity/approval spoofing from untrusted A2A message metadata
+- [x] Add ES/EN A2A execution status messages and protocol documentation
+- [ ] Add verified A2A transport identity mapping into Kairoseth actor/tenant/installation context
 - [ ] Add delegated authorization model
 - [ ] Add invocation provenance
 - [ ] Add cross-agent correlation and audit
-- [ ] Reuse the core ES/EN localization contract for A2A discovery metadata
+- [ ] Add official A2A transport/SDK interoperability and Phase 5 end-to-end acceptance
 
-Exit condition: MCP, A2A and Kairoseth-native callers share one execution and policy core.
+Production-durable/clustered A2A task storage remains part of Phase 6 hardening; the Phase 5 baseline uses an injectable task-store contract with a scope-safe in-memory implementation for local/dev/tests.
+
+Exit condition: MCP, A2A and Kairoseth-native callers share one execution and policy core, with authenticated agent identity, delegated authorization, provenance and common audit semantics.
 
 ## Phase 6 — Production hardening
 
