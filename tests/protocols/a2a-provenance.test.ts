@@ -110,8 +110,10 @@ async function mapContext(options: {
     activatedExtensions: [KAIROSETH_A2A_TOOL_INVOCATION_EXTENSION_URI],
     locale: "en",
   });
+  if (!mapped.mapped) {
+    throw new Error(`Identity mapping failed: ${mapped.reason}`);
+  }
   assert.equal(mapped.mapped, true);
-  if (!mapped.mapped) throw new Error(mapped.reason);
   return mapped.context;
 }
 
@@ -224,9 +226,9 @@ test("A2A approval resume preserves the original provenance instead of accepting
   );
 
   const policy: PolicyEvaluator = {
-    async evaluate(tool, _input, context) {
+    async evaluate(tool, input, context) {
       if (tool.risk === "READ") {
-        return new SecureDefaultPolicyEvaluator().evaluate(tool, _input, context);
+        return new SecureDefaultPolicyEvaluator().evaluate(tool, input, context);
       }
       return context.approvalToken === "approved"
         ? { outcome: "ALLOW", reason: "Approved." }
