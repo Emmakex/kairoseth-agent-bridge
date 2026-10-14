@@ -70,6 +70,10 @@ jobs:
           printf '%s  %s\n' "${ARTIFACT_SHA256}" "${NAME}.tar.gz" > release/SHA256SUMS
           printf '%s  %s\n' "${SBOM_SHA256}" "sbom.cdx.json" >> release/SHA256SUMS
 
+          VERSION="${VERSION}" \
+          ARTIFACT_FILE="${NAME}.tar.gz" \
+          ARTIFACT_SHA256="${ARTIFACT_SHA256}" \
+          SBOM_SHA256="${SBOM_SHA256}" \
           node -e '
             const fs = require("node:fs");
             const manifest = {
@@ -94,11 +98,7 @@ jobs:
               },
             };
             fs.writeFileSync("release/release-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
-          ' \
-          VERSION="${VERSION}" \
-          ARTIFACT_FILE="${NAME}.tar.gz" \
-          ARTIFACT_SHA256="${ARTIFACT_SHA256}" \
-          SBOM_SHA256="${SBOM_SHA256}"
+          '
 
           cp sbom.cdx.json release/sbom.cdx.json
 
@@ -126,9 +126,11 @@ jobs:
           set -euo pipefail
           if [[ -f "${RUNNER_TEMP}/created_attestation_paths.txt" ]]; then
             mkdir -p release/attestations
+            index=0
             while IFS= read -r attestation; do
               [[ -n "${attestation}" ]] || continue
-              cp "${attestation}" release/attestations/
+              index=$((index + 1))
+              cp "${attestation}" "release/attestations/attestation-${index}.jsonl"
             done < "${RUNNER_TEMP}/created_attestation_paths.txt"
           fi
 
