@@ -21,9 +21,26 @@ export interface A2AAgentProvider {
   organization: string;
 }
 
+export interface A2AAgentExtension {
+  uri: string;
+  description?: string | undefined;
+  required?: boolean | undefined;
+  params?: Readonly<Record<string, unknown>> | undefined;
+}
+
+/**
+ * Agent Card descriptions are user/agent-facing, so official Kairoseth
+ * extension declarations are localized in both supported product languages.
+ * URI, required flag and params must remain semantically identical.
+ */
+export type A2AAgentExtensionLocalizations = Readonly<
+  Record<SupportedLocale, readonly A2AAgentExtension[]>
+>;
+
 export interface A2AAgentCapabilities {
   streaming?: boolean | undefined;
   pushNotifications?: boolean | undefined;
+  extensions?: readonly A2AAgentExtension[] | undefined;
   extendedAgentCard?: boolean | undefined;
 }
 
@@ -77,6 +94,8 @@ export interface A2AAgentCardAdapterOptions {
   /** Public-card authentication metadata supplied by the trusted A2A host. */
   securitySchemes?: Readonly<Record<string, A2ASecurityScheme>> | undefined;
   securityRequirements?: readonly A2ASecurityRequirement[] | undefined;
+  /** Localized declarations for optional/required A2A extensions. */
+  extensions?: A2AAgentExtensionLocalizations | undefined;
   /** A2A media types; default is application/json for Bridge structured data. */
   defaultInputModes?: readonly string[] | undefined;
   defaultOutputModes?: readonly string[] | undefined;
