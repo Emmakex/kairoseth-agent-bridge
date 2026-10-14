@@ -4,6 +4,34 @@ export type PolicyOutcome = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 
 export type SupportedLocale = "es" | "en";
 
+export type InvocationProtocol =
+  | "kairoseth-native"
+  | "mcp"
+  | "a2a"
+  | "rest"
+  | "webhook"
+  | "internal";
+
+export interface AuthenticatedPrincipalProvenance {
+  issuer: string;
+  subject: string;
+  authenticationMethod: string;
+  clientId?: string;
+}
+
+/**
+ * Safe, protocol-neutral lineage carried with an invocation. It contains only
+ * identifiers needed to reconstruct an agent-to-agent chain; credentials,
+ * tokens and authorization scopes must never be stored here.
+ */
+export interface InvocationProvenance {
+  version: "kab.provenance.v1";
+  protocol: InvocationProtocol;
+  rootCorrelationId: string;
+  parentCorrelationId?: string;
+  principal?: AuthenticatedPrincipalProvenance;
+}
+
 export interface LocalizedToolText {
   name: string;
   description: string;
@@ -30,6 +58,8 @@ export interface InvocationContext {
    * this flag directly.
    */
   delegationRequired?: boolean;
+  /** Safe lineage only. Never place credentials or raw tokens in provenance. */
+  provenance?: InvocationProvenance;
   metadata?: Readonly<Record<string, string>>;
 }
 
@@ -92,6 +122,7 @@ export interface AuditEvent {
   occurredAt: string;
   outcome?: PolicyOutcome;
   message?: string;
+  provenance?: InvocationProvenance;
 }
 
 export interface AuditSink {
