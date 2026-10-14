@@ -280,8 +280,7 @@ test("getSkill returns localized skill or null and Agent Card snapshots are isol
   assert.equal(adapter.getSkill("missing", "en"), null);
 
   const first = adapter.getAgentCard("en");
-  (first.supportedInterfaces as A2AAgentCardAdapter["getAgentCard"] extends (...args: never[]) => infer R ? R["supportedInterfaces"] : never);
-  const mutable = first.supportedInterfaces as Array<{ url: string }>;
+  const mutable = first.supportedInterfaces as unknown as Array<{ url: string }>;
   mutable[0]!.url = "https://tampered.example.com";
   const second = adapter.getAgentCard("en");
   assert.equal(
