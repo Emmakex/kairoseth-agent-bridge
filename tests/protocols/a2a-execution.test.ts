@@ -11,6 +11,8 @@ import {
   ToolRegistry,
   type A2AExecutionContext,
   type A2ASendMessageRequest,
+  type A2ASendMessageResponse,
+  type A2ATask,
   type InvocationContext,
   type PolicyEvaluator,
   type ToolDefinition,
@@ -103,6 +105,13 @@ function context(
   };
 }
 
+function requireTask(response: A2ASendMessageResponse): A2ATask {
+  if (!response.task) {
+    throw new Error("Expected A2A SendMessage to return a Task.");
+  }
+  return response.task;
+}
+
 function assertA2AError(
   error: unknown,
   code: A2AExecutionError["code"],
@@ -134,15 +143,15 @@ test("A2A READ executes through BridgeRuntime and returns a structured Artifact"
     request("demo.orders.get", { id: 42 }, { contextId: "context-client" }),
     context(),
   );
-  assert.ok("task" in response);
-  assert.equal(response.task.id, "generated-1");
-  assert.equal(response.task.contextId, "context-client");
-  assert.equal(response.task.status.state, "TASK_STATE_COMPLETED");
-  assert.deepEqual(response.task.artifacts?.[0]?.parts[0]?.data, {
+  const task = requireTask(response);
+  assert.equal(task.id, "generated-1");
+  assert.equal(task.contextId, "context-client");
+  assert.equal(task.status.state, "TASK_STATE_COMPLETED");
+  assert.deepEqual(task.artifacts?.[0]?.parts[0]?.data, {
     orderId: 42,
     status: "processing",
   });
-  assert.equal(response.task.artifacts?.[0]?.parts[0]?.mediaType, "application/json");
+  assert.equal(task.artifacts?.[0]?.parts[0]?.mediaType, "application/json");
   assert.deepEqual(seenInput, { id: 42 });
   assert.equal(seenContext?.actor, "agent:trusted");
   assert.equal(seenContext?.tenantId, "tenant-1");
@@ -178,16 +187,16 @@ test("A2A WRITE becomes AUTH_REQUIRED in Spanish and has zero side effects", asy
     request("demo.orders.update", { status: "completed" }),
     context({ locale: "es" }),
   );
-  assert.ok("task" in response);
-  assert.equal(response.task.status.state, "TASK_STATE_AUTH_REQUIRED");
+  const task = requireTask(response);
+  assert.equal(task.status.state, "TASK_STATE_AUTH_REQUIRED");
   assert.match(
-    response.task.status.message?.parts[0]?.text ?? "",
+    task.status.message?.parts[0]?.text ?? "",
     /requiere autorización/i,
   );
   assert.equal(executions, 0);
 
   const fetched = await adapter.getTask(
-    { id: response.task.id },
+    { id: task.id },
     context({ locale: "es" }),
   );
   assert.equal(fetched.status.state, "TASK_STATE_AUTH_REQUIRED");
@@ -195,7 +204,7 @@ test("A2A WRITE becomes AUTH_REQUIRED in Spanish and has zero side effects", asy
   await assert.rejects(
     () =>
       adapter.getTask(
-        { id: response.task.id },
+        { id: task.id },
         context({ actor: "agent:other", locale: "es" }),
       ),
     (error) => assertA2AError(error, "TASK_NOT_FOUND"),
@@ -232,8 +241,10 @@ test("A2A approval resume preserves original action and correlation", async () =
     request("demo.stock.set", { quantity: 7 }, { messageId: "message-first" }),
     context({ correlationId: "correlation-original" }),
   );
-  assert.ok("task" in first);
-  assert.equal(first.task.status.state, "TASK_STATE_AUTH_REQUIRED");
+  const firstTask = requireTask(first);
+  const firstContextId = firstTask.contextId;
+  assert.ok(firstContextId);
+  assert.equal(firstTask.status.state, "TASK_STATE_AUTH_REQUIRED");
   assert.equal(executions, 0);
 
   await assert.rejects(
@@ -244,8 +255,8 @@ test("A2A approval resume preserves original action and correlation", async () =
           { quantity: 8 },
           {
             messageId: "message-tampered",
-            taskId: first.task.id,
-            contextId: first.task.contextId,
+            taskId: firstTask.id,
+            contextId: firstContextId,
           },
         ),
         context({ approvalToken: "approved", correlationId: "correlation-new" }),
@@ -260,15 +271,15 @@ test("A2A approval resume preserves original action and correlation", async () =
       { quantity: 7 },
       {
         messageId: "message-resume",
-        taskId: first.task.id,
-        contextId: first.task.contextId,
+        taskId: firstTask.id,
+        contextId: firstContextId,
       },
     ),
     context({ approvalToken: "approved", correlationId: "correlation-new" }),
   );
-  assert.ok("task" in resumed);
-  assert.equal(resumed.task.id, first.task.id);
-  assert.equal(resumed.task.status.state, "TASK_STATE_COMPLETED");
+  const resumedTask = requireTask(resumed);
+  assert.equal(resumedTask.id, firstTask.id);
+  assert.equal(resumedTask.status.state, "TASK_STATE_COMPLETED");
   assert.equal(executions, 1);
   assert.equal(executedContext?.correlationId, "correlation-original");
   assert.equal(executedContext?.approvalToken, "approved");
@@ -338,13 +349,18 @@ test("A2A terminal task cannot be re-executed through task continuation", async 
     { idGenerator: ids() },
   );
   const first = await adapter.sendMessage(request("demo.once", {}), context());
-  assert.ok("task" in first);
+  const firstTask = requireTask(first);
+  const firstContextId = firstTask.contextId;
+  assert.ok(firstContextId);
   assert.equal(executions, 1);
 
   await assert.rejects(
     () =>
       adapter.sendMessage(
-        request("demo.once", {}, { taskId: first.task.id, contextId: first.task.contextId }),
+        request("demo.once", {}, {
+          taskId: firstTask.id,
+          contextId: firstContextId,
+        }),
         context(),
       ),
     (error) => assertA2AError(error, "UNSUPPORTED_OPERATION"),
