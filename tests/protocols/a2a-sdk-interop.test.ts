@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   AgentCard,
+  GetTaskRequest,
   SendMessageRequest,
   TaskState,
 } from "@a2a-js/sdk";
@@ -20,6 +21,7 @@ import {
   MemoryAuditSink,
   ToolRegistry,
   type A2AExecutionContext,
+  type A2AGetTaskRequest,
   type A2ASendMessageRequest,
   type ToolDefinition,
 } from "../../src/index.js";
@@ -120,6 +122,12 @@ function sdkRequest(toolId: string, input: unknown, messageId: string) {
   });
 }
 
+function sdkServiceParameters(): Record<string, string> {
+  return {
+    "A2A-Extensions": KAIROSETH_A2A_TOOL_INVOCATION_EXTENSION_URI,
+  };
+}
+
 function activatedExtensions(headers: Headers): string[] {
   const value = headers.get("A2A-Extensions");
   if (!value) return [];
@@ -181,7 +189,24 @@ function createOfficialSdkFetch(options: {
     assert.equal(rpc.jsonrpc, "2.0");
     assert.equal(typeof rpc.id === "number" || typeof rpc.id === "string", true);
 
-    if (rpc.method !== "SendMessage") {
+    const context = await mappedContext(
+      options.mapper,
+      headers,
+      `sdk-${String(rpc.id)}`,
+    );
+
+    let result: unknown;
+    if (rpc.method === "SendMessage") {
+      result = await options.adapter.sendMessage(
+        rpc.params as A2ASendMessageRequest,
+        context,
+      );
+    } else if (rpc.method === "GetTask") {
+      result = await options.adapter.getTask(
+        rpc.params as A2AGetTaskRequest,
+        context,
+      );
+    } else {
       return new Response(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -194,16 +219,6 @@ function createOfficialSdkFetch(options: {
         },
       );
     }
-
-    const context = await mappedContext(
-      options.mapper,
-      headers,
-      `sdk-${String(rpc.id)}`,
-    );
-    const result = await options.adapter.sendMessage(
-      rpc.params as A2ASendMessageRequest,
-      context,
-    );
 
     return new Response(
       JSON.stringify({
@@ -253,11 +268,7 @@ test("official @a2a-js/sdk 1.3.0 JSON-RPC client interoperates with Kairoseth RE
 
   const result = await client.sendMessage(
     sdkRequest("demo.sdk.read", { id: 42 }, "sdk-read-1"),
-    {
-      serviceParameters: {
-        "A2A-Extensions": KAIROSETH_A2A_TOOL_INVOCATION_EXTENSION_URI,
-      },
-    },
+    { serviceParameters: sdkServiceParameters() },
   );
 
   assert.ok("status" in result);
@@ -281,7 +292,7 @@ test("official @a2a-js/sdk 1.3.0 JSON-RPC client interoperates with Kairoseth RE
   );
 });
 
-test("official SDK WRITE request still stops at Kairoseth approval gate", async () => {
+test("official SDK WRITE request and GetTask both preserve Kairoseth approval gate", async () => {
   const registry = new ToolRegistry();
   let executions = 0;
   registry.register(
@@ -307,15 +318,19 @@ test("official SDK WRITE request still stops at Kairoseth approval gate", async 
 
   const result = await client.sendMessage(
     sdkRequest("demo.sdk.write", { enabled: true }, "sdk-write-1"),
-    {
-      serviceParameters: {
-        "A2A-Extensions": KAIROSETH_A2A_TOOL_INVOCATION_EXTENSION_URI,
-      },
-    },
+    { serviceParameters: sdkServiceParameters() },
   );
 
   assert.ok("status" in result);
   assert.equal(result.status?.state, TaskState.TASK_STATE_AUTH_REQUIRED);
   assert.equal(executions, 0);
-  assert.equal(seenHeaders.length, 1);
+
+  const fetched = await client.getTask(
+    GetTaskRequest.fromJSON({ id: result.id }),
+    { serviceParameters: sdkServiceParameters() },
+  );
+  assert.equal(fetched.id, result.id);
+  assert.equal(fetched.status?.state, TaskState.TASK_STATE_AUTH_REQUIRED);
+  assert.equal(executions, 0);
+  assert.equal(seenHeaders.length, 2);
 });
