@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Emit generated lockfile bootstrap payload
+        run: |
+          echo 'KAB_LOCKFILE_GZIP_BASE64_BEGIN'
+          gzip -c package-lock.json | base64 -w0
+          echo
+          echo 'KAB_LOCKFILE_GZIP_BASE64_END'
+
       - name: Typecheck, test and build
         run: npm run check
 
