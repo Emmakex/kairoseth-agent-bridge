@@ -23,7 +23,7 @@ const proof: SignedRegistrationProof = {
 };
 
 test("HTTP enrollment transport sends the token only in Authorization and maps Platform responses", async () => {
-  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     requests.push({ url: String(input), init });
 
