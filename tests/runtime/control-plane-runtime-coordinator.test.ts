@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  ControlPlaneRuntimeCoordinator,
-  type RuntimeReadiness,
-} from "../../src/index.js";
+import { ControlPlaneRuntimeCoordinator } from "../../src/index.js";
 
 function abortError(): Error {
   const error = new Error("aborted");
@@ -33,7 +30,7 @@ test("control plane coordinator runs heartbeat and snapshot loops under one life
         sessionStarted = true;
         sessionSignal = signal;
         const readiness = await readinessProvider();
-        assert.equal(readiness.readiness, "ready");
+        assert.equal(readiness, "ready");
         await untilAborted(signal);
       },
     },
@@ -48,11 +45,7 @@ test("control plane coordinator runs heartbeat and snapshot loops under one life
 
   const run = coordinator.run(() => {
     readinessCalls += 1;
-    return {
-      readiness: "ready",
-      runtimeVersion: "0.1.0-dev.0",
-      capabilities: ["connectors"],
-    } satisfies RuntimeReadiness;
+    return "ready";
   }, controller.signal);
 
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -91,15 +84,7 @@ test("unexpected session loop failure cancels snapshot loop and propagates the o
     },
   );
 
-  await assert.rejects(
-    () =>
-      coordinator.run(() => ({
-        readiness: "ready",
-        runtimeVersion: "0.1.0-dev.0",
-        capabilities: [],
-      })),
-    failure,
-  );
+  await assert.rejects(() => coordinator.run(() => "ready"), failure);
   assert.equal(snapshotAborted, true);
   assert.deepEqual(stopped, [{ loop: "session", reason: "unexpected" }]);
 });
@@ -122,15 +107,7 @@ test("unexpected snapshot loop failure cancels session loop without exposing a h
     },
   );
 
-  await assert.rejects(
-    () =>
-      coordinator.run(() => ({
-        readiness: "degraded",
-        runtimeVersion: "0.1.0-dev.0",
-        capabilities: [],
-      })),
-    failure,
-  );
+  await assert.rejects(() => coordinator.run(() => "degraded"), failure);
   assert.equal(sessionAborted, true);
 });
 
@@ -155,11 +132,7 @@ test("abort-shaped loop completion after coordinated cancellation is not surface
     },
   );
 
-  const run = coordinator.run(() => ({
-    readiness: "starting",
-    runtimeVersion: "0.1.0-dev.0",
-    capabilities: [],
-  }), controller.signal);
+  const run = coordinator.run(() => "starting", controller.signal);
   controller.abort();
   await run;
 });
