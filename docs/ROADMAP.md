@@ -158,24 +158,28 @@ Deployment may use a WordPress/WooCommerce connector plugin, hosted runtime, or 
 
 ### PrestaShop
 
-Initial surface status: **READ complete / WRITE pending**
+Initial surface status: **complete**
 
 - [x] Add official connector over Connector SDK and shared network guardrails
 - [x] Use native PrestaShop Webservice `/api/`
 - [x] Authenticate with SecretProvider Webservice key via Basic Auth without putting the key in URLs
 - [x] Support root and subfolder PrestaShop installations
 - [x] list/get orders — READ
+- [x] list configured order states — READ
 - [x] list/get products — READ
 - [x] get stock by product/combination through `stock_availables` — READ
+- [x] update order status through `order_histories` — WRITE
+- [x] update absolute StockAvailable quantity through verified partial PATCH — WRITE
+- [x] Require approval before every PrestaShop mutation under secure-default policy
+- [x] Disable automatic mutation retries and distinguish non-idempotent history from intrinsic absolute-stock idempotency
+- [x] Verify StockAvailable target ownership before PATCH to prevent wrong-record mutation
+- [x] Reject arbitrary Webservice resources, XML bodies, unsupported fields and unsafe values
 - [x] Publish ES/EN titles/descriptions for tools, manifest and credential setup metadata
 - [x] Add PrestaShop auth/routing/filter/stock/redaction tests
-- [x] Document PrestaShop READ baseline in ES/EN
-- [ ] update order status through an allowlisted WRITE tool
-- [ ] update StockAvailable through an allowlisted WRITE tool
-- [ ] Add approval/idempotency acceptance coverage for PrestaShop mutations
-- [ ] Add customer READ tools only when a concrete product workflow requires customer data
+- [x] Add PrestaShop WRITE approval/XML/target-verification/idempotency tests
+- [x] Document PrestaShop READ/WRITE surface in ES/EN
 
-Future PrestaShop expansion must use separate allowlisted tools rather than exposing an arbitrary Webservice resource client.
+Optional future customer READ tools should only be added when a concrete product workflow requires customer data. Future PrestaShop expansion must use separate allowlisted tools rather than exposing an arbitrary Webservice resource client.
 
 Deployment may use a native PrestaShop module, hosted runtime, or sidecar/local runtime depending on hosting and network access requirements.
 
