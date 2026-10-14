@@ -25,32 +25,23 @@ export function createInvocationProvenance(
     MAX_CORRELATION_ID_LENGTH,
     "correlationId",
   );
-  const rootCorrelationId = validateIdentifier(
-    options.rootCorrelationId ?? correlationId,
-    MAX_CORRELATION_ID_LENGTH,
-    "rootCorrelationId",
-  );
-  const parentCorrelationId = options.parentCorrelationId
-    ? validateIdentifier(
-        options.parentCorrelationId,
-        MAX_CORRELATION_ID_LENGTH,
-        "parentCorrelationId",
-      )
-    : undefined;
-
-  if (parentCorrelationId === correlationId) {
-    throw new Error("Invocation provenance parent correlation cannot equal the current correlation ID.");
-  }
-
-  return {
+  const provenance = normalizeInvocationProvenance({
     version: "kab.provenance.v1",
     protocol: options.protocol,
-    rootCorrelationId,
-    ...(parentCorrelationId ? { parentCorrelationId } : {}),
-    ...(options.principal
-      ? { principal: normalizePrincipal(options.principal) }
+    rootCorrelationId: options.rootCorrelationId ?? correlationId,
+    ...(options.parentCorrelationId
+      ? { parentCorrelationId: options.parentCorrelationId }
       : {}),
-  };
+    ...(options.principal ? { principal: options.principal } : {}),
+  });
+
+  if (provenance.parentCorrelationId === correlationId) {
+    throw new Error(
+      "Invocation provenance parent correlation cannot equal the current correlation ID.",
+    );
+  }
+
+  return provenance;
 }
 
 /**
@@ -73,25 +64,38 @@ export function deriveChildInvocationProvenance(
   });
 }
 
-export function validateInvocationProvenance(
+export function normalizeInvocationProvenance(
   provenance: InvocationProvenance,
 ): InvocationProvenance {
   if (provenance.version !== "kab.provenance.v1") {
     throw new Error("Invocation provenance version is unsupported.");
   }
-  return createInvocationProvenance({
+  if (!isInvocationProtocol(provenance.protocol)) {
+    throw new Error("Invocation provenance protocol is unsupported.");
+  }
+
+  const rootCorrelationId = validateIdentifier(
+    provenance.rootCorrelationId,
+    MAX_CORRELATION_ID_LENGTH,
+    "rootCorrelationId",
+  );
+  const parentCorrelationId = provenance.parentCorrelationId
+    ? validateIdentifier(
+        provenance.parentCorrelationId,
+        MAX_CORRELATION_ID_LENGTH,
+        "parentCorrelationId",
+      )
+    : undefined;
+
+  return {
+    version: "kab.provenance.v1",
     protocol: provenance.protocol,
-    correlationId: provenance.parentCorrelationId
-      ? provenance.parentCorrelationId === provenance.rootCorrelationId
-        ? `${provenance.rootCorrelationId}:validation-child`
-        : provenance.parentCorrelationId
-      : provenance.rootCorrelationId,
-    rootCorrelationId: provenance.rootCorrelationId,
-    ...(provenance.parentCorrelationId
-      ? { parentCorrelationId: provenance.parentCorrelationId }
+    rootCorrelationId,
+    ...(parentCorrelationId ? { parentCorrelationId } : {}),
+    ...(provenance.principal
+      ? { principal: normalizePrincipal(provenance.principal) }
       : {}),
-    ...(provenance.principal ? { principal: provenance.principal } : {}),
-  });
+  };
 }
 
 function normalizePrincipal(
@@ -126,6 +130,17 @@ function normalizePrincipal(
     authenticationMethod,
     ...(clientId ? { clientId } : {}),
   };
+}
+
+function isInvocationProtocol(value: string): value is InvocationProtocol {
+  return (
+    value === "kairoseth-native" ||
+    value === "mcp" ||
+    value === "a2a" ||
+    value === "rest" ||
+    value === "webhook" ||
+    value === "internal"
+  );
 }
 
 function validateIdentifier(
