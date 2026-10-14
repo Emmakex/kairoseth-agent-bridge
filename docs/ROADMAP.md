@@ -185,11 +185,30 @@ Deployment may use a native PrestaShop module, hosted runtime, or sidecar/local 
 
 ### MySQL
 
-Initial model:
+Initial surface status: **complete**
 
-- [ ] parameterized read profiles — READ
-- [ ] explicitly declared mutation profiles — WRITE/CRITICAL
-- [ ] no arbitrary SQL by default
+- [x] Add official declared-profile connector over Connector SDK
+- [x] Use `mysql2/promise` prepared statements through `execute()`
+- [x] Parameterized READ profiles with strict typed inputs
+- [x] Execute READ profiles inside `START TRANSACTION READ ONLY`
+- [x] Require a SQL `LIMIT` plus normalized `maxRows` bounds for READ profiles
+- [x] Explicitly declared mutation profiles — WRITE/CRITICAL
+- [x] Require DELETE profiles to be CRITICAL
+- [x] Require approval before database mutations under secure-default policy
+- [x] Disable automatic retries for all mutations
+- [x] Support explicit mutation idempotency metadata
+- [x] Reject arbitrary SQL, multi-statements, comments, DDL and dangerous file-output capabilities
+- [x] Validate exact `?` placeholder / parameter count
+- [x] Reject undeclared agent input fields before database execution
+- [x] Add recursive sensitive-column redaction and row-count bounds
+- [x] Resolve username/password/TLS CA through SecretProvider
+- [x] Require verified TLS by default with explicit deployment opt-out for controlled local networks
+- [x] Support exact database-host allowlisting
+- [x] Publish connector/setup/profile metadata in ES/EN
+- [x] Add policy/retry/TLS/host/SQL-validation/redaction/result-bound tests
+- [x] Document MySQL connector in ES/EN
+
+Future MySQL expansion must extend the profile contract explicitly. Agent-supplied SQL, dynamic table/column identifiers and unrestricted administrative/DDL profiles remain out of scope by default.
 
 ### Files
 
