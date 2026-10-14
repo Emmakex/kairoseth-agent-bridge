@@ -1,6 +1,8 @@
 import type { ToolRegistry } from "../../core/registry.js";
 import type { InvocationContext, ToolDefinition } from "../../core/contracts.js";
 import {
+  ConnectorCredentialRotationError,
+  ConnectorCredentialRotationPendingError,
   ConnectorError,
   ConnectorTimeoutError,
   ConnectorTransientError,
@@ -11,6 +13,10 @@ import {
   type ConnectorCircuitSnapshot,
 } from "./circuit-breaker.js";
 import type {
+  ConnectorCredentialRotationFailureReason,
+  ConnectorCredentialRotationNotice,
+  ConnectorCredentialRotationResult,
+  ConnectorCredentialRotationState,
   ConnectorDefinition,
   ConnectorHealthResult,
   ConnectorHealthStatus,
@@ -30,6 +36,7 @@ import {
 export interface ConnectorRegistryAdapterOptions {
   defaultToolTimeoutMs?: number | undefined;
   defaultHealthTimeoutMs?: number | undefined;
+  defaultCredentialRotationTimeoutMs?: number | undefined;
   sleep?: ((delayMs: number) => Promise<void>) | undefined;
   /** Set false only when an outer execution layer provides equivalent isolation. */
   circuitBreaker?: ConnectorCircuitBreaker | false | undefined;
@@ -37,13 +44,28 @@ export interface ConnectorRegistryAdapterOptions {
 
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 10_000;
+const DEFAULT_CREDENTIAL_ROTATION_TIMEOUT_MS = 10_000;
+const MAX_CREDENTIAL_ROTATION_RECEIPTS = 256;
+const ROTATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+class CredentialRotationTimeoutMarker extends Error {}
 
 export class ConnectorRegistryAdapter {
   private readonly defaultToolTimeoutMs: number;
   private readonly defaultHealthTimeoutMs: number;
+  private readonly defaultCredentialRotationTimeoutMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly circuitBreaker: ConnectorCircuitBreaker | null;
   private readonly instances = new Map<string, ConnectorInstance>();
+  private readonly credentialRotationStates = new Map<
+    string,
+    ConnectorCredentialRotationState
+  >();
+  private readonly credentialRotationReceipts = new Map<
+    string,
+    ConnectorCredentialRotationResult
+  >();
+  private readonly credentialRotationReceiptOrder: string[] = [];
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -53,6 +75,9 @@ export class ConnectorRegistryAdapter {
       options.defaultToolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     this.defaultHealthTimeoutMs =
       options.defaultHealthTimeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS;
+    this.defaultCredentialRotationTimeoutMs =
+      options.defaultCredentialRotationTimeoutMs ??
+      DEFAULT_CREDENTIAL_ROTATION_TIMEOUT_MS;
     this.sleep = options.sleep ?? defaultSleep;
     this.circuitBreaker =
       options.circuitBreaker === false
@@ -61,6 +86,10 @@ export class ConnectorRegistryAdapter {
 
     validateTimeout(this.defaultToolTimeoutMs, "default tool timeout");
     validateTimeout(this.defaultHealthTimeoutMs, "default health timeout");
+    validateTimeout(
+      this.defaultCredentialRotationTimeoutMs,
+      "default credential rotation timeout",
+    );
   }
 
   register(instance: ConnectorInstance): RegisteredConnectorInstance {
@@ -114,6 +143,119 @@ export class ConnectorRegistryAdapter {
     };
   }
 
+  credentialRotationState(
+    instance: ConnectorInstance,
+  ): ConnectorCredentialRotationState {
+    validateConnectorDefinition(instance.connector);
+    this.assertRegisteredInstance(instance);
+    return (
+      this.credentialRotationStates.get(instanceKey(instance)) ?? {
+        status: "idle",
+      }
+    );
+  }
+
+  /**
+   * Apply a metadata-only rotation notice without ever carrying credential
+   * values through the adapter. Execution is fail-closed for the entire
+   * connector instance until provider/connector refresh hooks complete.
+   */
+  async credentialsRotated(
+    instance: ConnectorInstance,
+    notice: ConnectorCredentialRotationNotice,
+  ): Promise<ConnectorCredentialRotationResult> {
+    validateConnectorDefinition(instance.connector);
+    this.assertRegisteredInstance(instance);
+    validateCredentialRotationNotice(instance.connector, notice);
+
+    const key = instanceKey(instance);
+    const receiptKey = `${key}:${notice.rotationId}`;
+    const existingReceipt = this.credentialRotationReceipts.get(receiptKey);
+    if (existingReceipt) return existingReceipt;
+
+    const current = this.credentialRotationStates.get(key);
+    if (current?.status === "refreshing") {
+      throw new ConnectorCredentialRotationError(
+        `Connector instance ${instance.connector.manifest.id}.${instance.instanceId} already has a credential rotation in progress.`,
+      );
+    }
+
+    this.credentialRotationStates.set(key, rotationState("refreshing", notice));
+
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const applyPromise = Promise.resolve().then(async () => {
+      const providerRefresh = instance.secrets.refreshCredentials
+        ? "refreshed"
+        : "live";
+      if (instance.secrets.refreshCredentials) {
+        await instance.secrets.refreshCredentials(notice, {
+          connectorId: instance.connector.manifest.id,
+          connectorInstanceId: instance.instanceId,
+          signal: controller.signal,
+        });
+      }
+
+      const connectorHook = instance.connector.credentialsRotated
+        ? "applied"
+        : "not_declared";
+      if (instance.connector.credentialsRotated) {
+        await instance.connector.credentialsRotated(notice, {
+          connectorId: instance.connector.manifest.id,
+          connectorInstanceId: instance.instanceId,
+          config: instance.config ?? {},
+          secrets: instance.secrets,
+          signal: controller.signal,
+        });
+      }
+
+      return { providerRefresh, connectorHook } as const;
+    });
+
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new CredentialRotationTimeoutMarker());
+      }, this.defaultCredentialRotationTimeoutMs);
+    });
+
+    try {
+      const applied = await Promise.race([applyPromise, timeoutPromise]);
+      const result: ConnectorCredentialRotationResult = {
+        status: "applied",
+        rotationId: notice.rotationId,
+        connectorId: instance.connector.manifest.id,
+        connectorInstanceId: instance.instanceId,
+        requirementId: notice.requirementId,
+        fieldIds: [...notice.fieldIds],
+        rotatedAt: notice.rotatedAt,
+        ...(notice.revision ? { revision: notice.revision } : {}),
+        providerRefresh: applied.providerRefresh,
+        connectorHook: applied.connectorHook,
+        appliedAt: new Date().toISOString(),
+      };
+
+      this.credentialRotationStates.delete(key);
+      this.rememberCredentialRotationReceipt(receiptKey, result);
+      return result;
+    } catch (error) {
+      const failureReason: ConnectorCredentialRotationFailureReason =
+        error instanceof CredentialRotationTimeoutMarker
+          ? "timeout"
+          : "apply_failed";
+      this.credentialRotationStates.set(
+        key,
+        rotationState("blocked", notice, failureReason),
+      );
+      throw new ConnectorCredentialRotationError(
+        `Credential rotation ${notice.rotationId} could not be applied for connector instance ${instance.connector.manifest.id}.${instance.instanceId} (${failureReason}).`,
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   /**
    * Execute one connector-defined probe with bounded runtime and normalized
    * failure handling. Probe exceptions never escape into an aggregate health
@@ -121,6 +263,16 @@ export class ConnectorRegistryAdapter {
    */
   async health(instance: ConnectorInstance): Promise<ConnectorHealthResult> {
     validateConnectorDefinition(instance.connector);
+
+    const rotation = this.activeCredentialRotationState(instance);
+    if (rotation) {
+      return {
+        status: "unhealthy",
+        checkedAt: new Date().toISOString(),
+        details: { probe: "credential_rotation" },
+      };
+    }
+
     const healthProbe = instance.connector.health;
 
     if (!healthProbe) {
@@ -180,9 +332,10 @@ export class ConnectorRegistryAdapter {
     instance: ConnectorInstance,
   ): Promise<ConnectorInstanceHealthSnapshot> {
     validateConnectorDefinition(instance.connector);
+    const rotation = this.activeCredentialRotationState(instance);
     const probe = await this.health(instance);
     const tools = instance.connector.tools.map((tool) =>
-      this.toolHealthSnapshot(instance, tool),
+      this.toolHealthSnapshot(instance, tool, rotation),
     );
 
     return {
@@ -192,6 +345,7 @@ export class ConnectorRegistryAdapter {
       checkedAt: probe.checkedAt,
       probe,
       tools,
+      ...(rotation ? { credentialRotation: rotation } : {}),
     };
   }
 
@@ -218,6 +372,7 @@ export class ConnectorRegistryAdapter {
   private toolHealthSnapshot(
     instance: ConnectorInstance,
     tool: ConnectorToolDefinition,
+    rotation: ConnectorCredentialRotationState | undefined,
   ): ConnectorToolHealthSnapshot {
     const runtimeToolId = connectorRuntimeToolId(
       instance.connector.manifest.id,
@@ -225,15 +380,7 @@ export class ConnectorRegistryAdapter {
       tool.id,
     );
 
-    if (!this.circuitBreaker) {
-      return {
-        toolId: tool.id,
-        runtimeToolId,
-        availability: "available",
-      };
-    }
-
-    const circuit = this.circuitBreaker.snapshot(
+    const circuit = this.circuitBreaker?.snapshot(
       connectorCircuitKey(
         instance.connector.manifest.id,
         instance.instanceId,
@@ -241,10 +388,32 @@ export class ConnectorRegistryAdapter {
       ),
     );
 
+    if (rotation) {
+      return {
+        toolId: tool.id,
+        runtimeToolId,
+        availability: "blocked",
+        blockedReason: "credential_rotation",
+        ...(circuit ? { circuit } : {}),
+      };
+    }
+
+    if (!circuit) {
+      return {
+        toolId: tool.id,
+        runtimeToolId,
+        availability: "available",
+      };
+    }
+
+    const availability = circuitAvailability(circuit);
     return {
       toolId: tool.id,
       runtimeToolId,
-      availability: circuitAvailability(circuit),
+      availability,
+      ...(availability === "blocked"
+        ? { blockedReason: "circuit_open" as const }
+        : {}),
       circuit,
     };
   }
@@ -255,6 +424,8 @@ export class ConnectorRegistryAdapter {
     input: unknown,
     invocation: InvocationContext,
   ): Promise<unknown> {
+    this.assertCredentialExecutionAllowed(instance);
+
     const timeoutMs = tool.behavior?.timeoutMs ?? this.defaultToolTimeoutMs;
     const retry = normalizeRetry(tool.behavior?.retry);
     const idempotencyKey = deriveIdempotencyKey(tool, input);
@@ -339,6 +510,46 @@ export class ConnectorRegistryAdapter {
       ]);
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  private assertRegisteredInstance(instance: ConnectorInstance): void {
+    const registered = this.instances.get(instanceKey(instance));
+    if (registered !== instance) {
+      throw new ConnectorCredentialRotationError(
+        `Connector instance ${instance.connector.manifest.id}.${instance.instanceId} is not registered in this adapter.`,
+      );
+    }
+  }
+
+  private activeCredentialRotationState(
+    instance: ConnectorInstance,
+  ): ConnectorCredentialRotationState | undefined {
+    return this.credentialRotationStates.get(instanceKey(instance));
+  }
+
+  private assertCredentialExecutionAllowed(instance: ConnectorInstance): void {
+    if (this.activeCredentialRotationState(instance)) {
+      throw new ConnectorCredentialRotationPendingError(
+        instance.connector.manifest.id,
+        instance.instanceId,
+      );
+    }
+  }
+
+  private rememberCredentialRotationReceipt(
+    receiptKey: string,
+    result: ConnectorCredentialRotationResult,
+  ): void {
+    this.credentialRotationReceipts.set(receiptKey, result);
+    this.credentialRotationReceiptOrder.push(receiptKey);
+
+    while (
+      this.credentialRotationReceiptOrder.length >
+      MAX_CREDENTIAL_ROTATION_RECEIPTS
+    ) {
+      const oldest = this.credentialRotationReceiptOrder.shift();
+      if (oldest) this.credentialRotationReceipts.delete(oldest);
     }
   }
 }
@@ -472,6 +683,118 @@ function aggregateHealthStatus(
   }
 
   return "healthy";
+}
+
+function rotationState(
+  status: "refreshing" | "blocked",
+  notice: ConnectorCredentialRotationNotice,
+  failureReason?: ConnectorCredentialRotationFailureReason,
+): ConnectorCredentialRotationState {
+  return {
+    status,
+    rotationId: notice.rotationId,
+    requirementId: notice.requirementId,
+    fieldIds: [...notice.fieldIds],
+    rotatedAt: notice.rotatedAt,
+    ...(notice.revision ? { revision: notice.revision } : {}),
+    ...(failureReason ? { failureReason } : {}),
+  };
+}
+
+function validateCredentialRotationNotice(
+  connector: ConnectorDefinition,
+  notice: ConnectorCredentialRotationNotice,
+): void {
+  if (!notice || typeof notice !== "object" || Array.isArray(notice)) {
+    throw new ConnectorCredentialRotationError(
+      "Credential rotation notice must be an object.",
+    );
+  }
+
+  const allowedKeys = new Set([
+    "rotationId",
+    "requirementId",
+    "fieldIds",
+    "rotatedAt",
+    "revision",
+  ]);
+  for (const key of Object.keys(notice as object)) {
+    if (!allowedKeys.has(key)) {
+      throw new ConnectorCredentialRotationError(
+        `Credential rotation notice contains unsupported field: ${key}.`,
+      );
+    }
+  }
+
+  if (!ROTATION_ID_PATTERN.test(notice.rotationId)) {
+    throw new ConnectorCredentialRotationError(
+      "Credential rotation ID is invalid.",
+    );
+  }
+
+  const requirement = connector.manifest.credentials.find(
+    (candidate) => candidate.id === notice.requirementId,
+  );
+  if (!requirement) {
+    throw new ConnectorCredentialRotationError(
+      `Credential rotation references undeclared requirement: ${notice.requirementId}.`,
+    );
+  }
+
+  if (
+    !Array.isArray(notice.fieldIds) ||
+    notice.fieldIds.length < 1 ||
+    notice.fieldIds.length > 32
+  ) {
+    throw new ConnectorCredentialRotationError(
+      "Credential rotation must reference between 1 and 32 credential fields.",
+    );
+  }
+
+  const declaredFields = new Set(requirement.fields.map((field) => field.id));
+  const seenFields = new Set<string>();
+  for (const fieldId of notice.fieldIds) {
+    if (typeof fieldId !== "string" || !declaredFields.has(fieldId)) {
+      throw new ConnectorCredentialRotationError(
+        `Credential rotation references undeclared field: ${String(fieldId)}.`,
+      );
+    }
+    if (seenFields.has(fieldId)) {
+      throw new ConnectorCredentialRotationError(
+        `Credential rotation contains duplicate field: ${fieldId}.`,
+      );
+    }
+    seenFields.add(fieldId);
+  }
+
+  if (
+    typeof notice.rotatedAt !== "string" ||
+    notice.rotatedAt.length > 64 ||
+    Number.isNaN(Date.parse(notice.rotatedAt))
+  ) {
+    throw new ConnectorCredentialRotationError(
+      "Credential rotation rotatedAt is invalid.",
+    );
+  }
+
+  if (
+    notice.revision !== undefined &&
+    (typeof notice.revision !== "string" ||
+      notice.revision.length < 1 ||
+      notice.revision.length > 128 ||
+      /[\u0000-\u001f\u007f]/.test(notice.revision))
+  ) {
+    throw new ConnectorCredentialRotationError(
+      "Credential rotation revision is invalid.",
+    );
+  }
+}
+
+function instanceKey(instance: ConnectorInstance): string {
+  return connectorInstanceKey(
+    instance.connector.manifest.id,
+    instance.instanceId,
+  );
 }
 
 function connectorInstanceKey(connectorId: string, instanceId: string): string {
