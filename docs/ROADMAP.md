@@ -6,7 +6,7 @@ Deliver a reusable, secure bridge that lets Kairoseth products and external AI a
 
 The roadmap favors small verifiable slices. Each phase must keep the control-plane boundary intact and leave CI green before the next phase starts.
 
-Agent Bridge is managed from the existing Kairoseth Platform at `kairoseth.com`; runtime placement adapts to the customer system. See `docs/RUNTIME_DEPLOYMENT.md`.
+Agent Bridge is managed from the existing Kairoseth Platform at `kairoseth.com`; runtime placement adapts to the customer system. Its operator surface belongs under `Kairoseth Platform -> IA -> Agent Bridge`. See `docs/RUNTIME_DEPLOYMENT.md`.
 
 ## Cross-cutting product rules
 
@@ -297,7 +297,7 @@ Status: **in progress**
 - [x] Payload/rate limits
 - [x] Circuit breakers
 - [x] Connector health isolation
-- [ ] Credential rotation hooks
+- [x] Credential rotation hooks
 - [ ] Signed releases
 - [ ] SBOM
 - [ ] Security scanning
@@ -320,9 +320,12 @@ Hardening completed so far:
 - mutating rate-limit backend failures remain fail-closed; optional fail-open is restricted to READ only;
 - per-connector-instance and per-tool circuit breakers isolate transient backend failures and recover through bounded half-open probes;
 - registered connector health collection is isolated per instance with hard probe timeouts, raw exception suppression and deterministic snapshots;
-- tool-level circuit state is projected into `available` / `degraded` / `blocked` health without changing policy, approvals or authorization.
+- tool-level circuit state is projected into `available` / `degraded` / `blocked` health without changing policy, approvals or authorization;
+- metadata-only credential rotation blocks new instance execution until SecretProvider and connector refresh hooks complete;
+- failed/timed-out credential rotation remains fail-closed, suppresses raw backend errors and projects `credential_rotation` into health;
+- applied rotation IDs have bounded in-process idempotency receipts while connector/provider hooks remain restart-safe and idempotent by contract.
 
-See `docs/CIRCUIT_BREAKERS.md` and `docs/CONNECTOR_HEALTH_ISOLATION.md`.
+See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md` and `docs/CREDENTIAL_ROTATION.md`.
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations.
 
