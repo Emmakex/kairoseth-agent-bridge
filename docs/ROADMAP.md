@@ -295,8 +295,8 @@ Status: **in progress**
 - [x] Encrypted temporary local queue
 - [x] General replay/idempotency hardening for clustered/shared deployments
 - [x] Payload/rate limits
-- [ ] Circuit breakers
-- [ ] Connector health isolation
+- [x] Circuit breakers
+- [x] Connector health isolation
 - [ ] Credential rotation hooks
 - [ ] Signed releases
 - [ ] SBOM
@@ -317,7 +317,12 @@ Hardening completed so far:
 - concurrent approval nonce `consume` defined as single-winner;
 - explicit fail-closed clustered/shared datastore requirements documented in ES/EN;
 - protocol-neutral canonical payload bounds plus atomic rate-limit contracts/scopes before authorization;
-- mutating rate-limit backend failures remain fail-closed; optional fail-open is restricted to READ only.
+- mutating rate-limit backend failures remain fail-closed; optional fail-open is restricted to READ only;
+- per-connector-instance and per-tool circuit breakers isolate transient backend failures and recover through bounded half-open probes;
+- registered connector health collection is isolated per instance with hard probe timeouts, raw exception suppression and deterministic snapshots;
+- tool-level circuit state is projected into `available` / `degraded` / `blocked` health without changing policy, approvals or authorization.
+
+See `docs/CIRCUIT_BREAKERS.md` and `docs/CONNECTOR_HEALTH_ISOLATION.md`.
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations.
 

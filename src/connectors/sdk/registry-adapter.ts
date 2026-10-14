@@ -8,13 +8,18 @@ import {
 import {
   ConnectorCircuitBreaker,
   connectorCircuitKey,
+  type ConnectorCircuitSnapshot,
 } from "./circuit-breaker.js";
 import type {
   ConnectorDefinition,
   ConnectorHealthResult,
+  ConnectorHealthStatus,
   ConnectorInstance,
+  ConnectorInstanceHealthSnapshot,
   ConnectorRetryPolicy,
+  ConnectorToolAvailabilityStatus,
   ConnectorToolDefinition,
+  ConnectorToolHealthSnapshot,
   RegisteredConnectorInstance,
 } from "./contracts.js";
 import {
@@ -38,6 +43,7 @@ export class ConnectorRegistryAdapter {
   private readonly defaultHealthTimeoutMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly circuitBreaker: ConnectorCircuitBreaker | null;
+  private readonly instances = new Map<string, ConnectorInstance>();
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -60,6 +66,14 @@ export class ConnectorRegistryAdapter {
   register(instance: ConnectorInstance): RegisteredConnectorInstance {
     validateConnectorDefinition(instance.connector);
     const { manifest } = instance.connector;
+    const registrationKey = connectorInstanceKey(manifest.id, instance.instanceId);
+
+    if (this.instances.has(registrationKey)) {
+      throw new Error(
+        `Connector instance ${manifest.id}.${instance.instanceId} is already registered.`,
+      );
+    }
+
     const runtimeToolIds: string[] = [];
 
     for (const tool of instance.connector.tools) {
@@ -91,6 +105,8 @@ export class ConnectorRegistryAdapter {
       runtimeToolIds.push(runtimeToolId);
     }
 
+    this.instances.set(registrationKey, instance);
+
     return {
       connectorId: manifest.id,
       instanceId: instance.instanceId,
@@ -98,43 +114,139 @@ export class ConnectorRegistryAdapter {
     };
   }
 
+  /**
+   * Execute one connector-defined probe with bounded runtime and normalized
+   * failure handling. Probe exceptions never escape into an aggregate health
+   * collector and their raw messages are intentionally not exposed.
+   */
   async health(instance: ConnectorInstance): Promise<ConnectorHealthResult> {
     validateConnectorDefinition(instance.connector);
+    const healthProbe = instance.connector.health;
 
-    if (!instance.connector.health) {
+    if (!healthProbe) {
       return {
         status: "healthy",
         checkedAt: new Date().toISOString(),
-        message: "Connector does not declare a custom health check.",
+        details: { probe: "not_declared" },
       };
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.defaultHealthTimeoutMs,
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    try {
-      return await instance.connector.health({
-        connectorId: instance.connector.manifest.id,
-        connectorInstanceId: instance.instanceId,
-        config: instance.config ?? {},
-        secrets: instance.secrets,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return {
+    const probePromise: Promise<ConnectorHealthResult> = Promise.resolve()
+      .then(
+        async () =>
+          await healthProbe({
+            connectorId: instance.connector.manifest.id,
+            connectorInstanceId: instance.instanceId,
+            config: instance.config ?? {},
+            secrets: instance.secrets,
+            signal: controller.signal,
+          }),
+      )
+      .catch(() => ({
+        status: "unhealthy",
+        checkedAt: new Date().toISOString(),
+        details: { probe: "failed" },
+      }));
+
+    const timeoutPromise = new Promise<ConnectorHealthResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({
           status: "unhealthy",
           checkedAt: new Date().toISOString(),
-          message: `Connector health check exceeded ${this.defaultHealthTimeoutMs} ms.`,
-        };
-      }
-      throw error;
+          details: {
+            probe: "timeout",
+            timeoutMs: this.defaultHealthTimeoutMs,
+          },
+        });
+      }, this.defaultHealthTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([probePromise, timeoutPromise]);
     } finally {
-      clearTimeout(timeout);
+      if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * Build an operational snapshot for one connector instance. Health is
+   * observational only; execution policy and approval remain authoritative.
+   */
+  async healthSnapshot(
+    instance: ConnectorInstance,
+  ): Promise<ConnectorInstanceHealthSnapshot> {
+    validateConnectorDefinition(instance.connector);
+    const probe = await this.health(instance);
+    const tools = instance.connector.tools.map((tool) =>
+      this.toolHealthSnapshot(instance, tool),
+    );
+
+    return {
+      connectorId: instance.connector.manifest.id,
+      connectorInstanceId: instance.instanceId,
+      status: aggregateHealthStatus(probe.status, tools),
+      checkedAt: probe.checkedAt,
+      probe,
+      tools,
+    };
+  }
+
+  /**
+   * Probe every registered connector instance independently and return a
+   * deterministic snapshot list. One failed or timed-out probe cannot reject
+   * or hide the health of another registered instance.
+   */
+  async healthRegistered(): Promise<readonly ConnectorInstanceHealthSnapshot[]> {
+    const instances = [...this.instances.values()].sort((left, right) => {
+      const connectorOrder = left.connector.manifest.id.localeCompare(
+        right.connector.manifest.id,
+      );
+      return connectorOrder !== 0
+        ? connectorOrder
+        : left.instanceId.localeCompare(right.instanceId);
+    });
+
+    return await Promise.all(
+      instances.map(async (instance) => await this.healthSnapshot(instance)),
+    );
+  }
+
+  private toolHealthSnapshot(
+    instance: ConnectorInstance,
+    tool: ConnectorToolDefinition,
+  ): ConnectorToolHealthSnapshot {
+    const runtimeToolId = connectorRuntimeToolId(
+      instance.connector.manifest.id,
+      instance.instanceId,
+      tool.id,
+    );
+
+    if (!this.circuitBreaker) {
+      return {
+        toolId: tool.id,
+        runtimeToolId,
+        availability: "available",
+      };
+    }
+
+    const circuit = this.circuitBreaker.snapshot(
+      connectorCircuitKey(
+        instance.connector.manifest.id,
+        instance.instanceId,
+        tool.id,
+      ),
+    );
+
+    return {
+      toolId: tool.id,
+      runtimeToolId,
+      availability: circuitAvailability(circuit),
+      circuit,
+    };
   }
 
   private async executeTool(
@@ -323,6 +435,47 @@ function readPath(value: unknown, path: string): unknown {
   }
 
   return current;
+}
+
+function circuitAvailability(
+  circuit: ConnectorCircuitSnapshot,
+): ConnectorToolAvailabilityStatus {
+  if (circuit.state === "open") return "blocked";
+  if (
+    circuit.state === "half-open" ||
+    circuit.probeInFlight ||
+    circuit.consecutiveFailures > 0
+  ) {
+    return "degraded";
+  }
+  return "available";
+}
+
+function aggregateHealthStatus(
+  probeStatus: ConnectorHealthStatus,
+  tools: readonly ConnectorToolHealthSnapshot[],
+): ConnectorHealthStatus {
+  if (probeStatus === "unhealthy") return "unhealthy";
+
+  const blockedCount = tools.filter(
+    (tool) => tool.availability === "blocked",
+  ).length;
+  if (tools.length > 0 && blockedCount === tools.length) {
+    return "unhealthy";
+  }
+
+  if (
+    probeStatus === "degraded" ||
+    tools.some((tool) => tool.availability !== "available")
+  ) {
+    return "degraded";
+  }
+
+  return "healthy";
+}
+
+function connectorInstanceKey(connectorId: string, instanceId: string): string {
+  return `${connectorId}:${instanceId}`;
 }
 
 function validateTimeout(value: number, label: string): void {
