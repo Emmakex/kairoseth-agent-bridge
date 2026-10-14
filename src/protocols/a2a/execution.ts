@@ -7,6 +7,7 @@ import type {
   SupportedLocale,
   ToolDefinition,
 } from "../../core/contracts.js";
+import { normalizeInvocationProvenance } from "../../core/provenance.js";
 import type { BridgeRuntime } from "../../runtime/bridge-runtime.js";
 import { createActionFingerprint } from "../../security/action-fingerprint.js";
 import { canonicalJson } from "../../security/canonical-json.js";
@@ -219,6 +220,9 @@ export class A2AToolExecutionAdapter {
     const invocation: A2ATrustedInvocation = {
       ...context.invocation,
       correlationId: record.invocation.correlationId,
+      ...(record.invocation.provenance
+        ? { provenance: structuredClone(record.invocation.provenance) }
+        : { provenance: undefined }),
     };
     const updatedTask = await this.invokeToTask(
       record.task.id,
@@ -320,6 +324,9 @@ export class A2AToolExecutionAdapter {
         correlationId: invocation.correlationId,
         input: parsed.input,
       }),
+      ...(invocation.provenance
+        ? { provenance: normalizeInvocationProvenance(invocation.provenance) }
+        : {}),
     };
   }
 
@@ -517,6 +524,9 @@ function invocationContextForA2A(
     ...(invocation.delegationRequired !== undefined
       ? { delegationRequired: invocation.delegationRequired }
       : {}),
+    ...(invocation.provenance
+      ? { provenance: normalizeInvocationProvenance(invocation.provenance) }
+      : {}),
     metadata: {
       ...(invocation.metadata ?? {}),
       protocol: "a2a",
@@ -563,6 +573,13 @@ function validateTrustedContext(
     !boundedIdentifier(invocation.correlationId, MAX_ID_LENGTH)
   ) {
     fail("UNAUTHENTICATED", locale);
+  }
+  if (invocation.provenance) {
+    try {
+      normalizeInvocationProvenance(invocation.provenance);
+    } catch {
+      fail("UNAUTHENTICATED", locale);
+    }
   }
 }
 
