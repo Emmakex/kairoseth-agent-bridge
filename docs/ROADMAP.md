@@ -212,18 +212,45 @@ Future MySQL expansion must extend the profile contract explicitly. Agent-suppli
 
 ### Files
 
-Initial model:
+Initial surface status: **complete**
 
-- [ ] list/read allowed roots — READ
-- [ ] create/update allowed roots — WRITE
-- [ ] delete/move sensitive paths — CRITICAL
+- [x] Add root-scoped filesystem connector over Connector SDK
+- [x] Declare trusted absolute roots only in deployment code/configuration
+- [x] list/read allowed roots — READ
+- [x] create/update allowed roots — WRITE
+- [x] delete/move sensitive paths — CRITICAL
+- [x] Require approval before WRITE/CRITICAL filesystem mutations under secure-default policy
+- [x] Reject absolute agent paths, traversal segments, backslashes, colon/ADS and control characters
+- [x] Block dotfiles by default with explicit root opt-in
+- [x] Support optional file-extension allowlists
+- [x] Canonicalize roots and reject symlink traversal with segment `lstat`
+- [x] Use `O_NOFOLLOW` on final opens when supported by the platform
+- [x] Restrict delete/move to regular files inside the same root
+- [x] Require explicit overwrite for existing write/move destinations
+- [x] Add bounded UTF-8/base64 reads/writes with SHA-256 on file content
+- [x] Disable automatic retries for WRITE/CRITICAL and retry only recognized transient READ failures
+- [x] Publish connector/root/tool metadata in ES/EN
+- [x] Add real-filesystem tests for traversal, symlinks, bounds, extensions, approvals, overwrite and move/delete
+- [x] Document Files connector in ES/EN
+
+Future Files expansion must retain root-scoped tools. Arbitrary absolute paths, recursive destructive operations and implicit cross-root moves remain out of scope by default.
 
 ### ERP / CRM / custom software
 
-- [ ] hosted API connector path for SaaS systems
-- [ ] local runtime path for on-premise systems
-- [ ] REST/Webhook/SDK adapter path for proprietary software
-- [ ] ES/EN descriptive metadata for official Kairoseth adapters
+Reusable integration paths already provided by the shared core:
+
+- [x] hosted API connector path for SaaS systems through Generic REST / Connector SDK
+- [x] local runtime path for on-premise systems through the native control channel and adaptive runtime deployment model
+- [x] REST/Webhook/SDK adapter path for proprietary software through Phase 2 contracts
+- [x] ES/EN descriptive metadata contract for official Kairoseth adapters
+
+### Phase 4 integration acceptance
+
+- [ ] Register WooCommerce, PrestaShop, MySQL and Files instances in one ToolRegistry
+- [ ] Prove READ tools from every connector execute through the same BridgeRuntime contract
+- [ ] Prove WRITE/CRITICAL tools from every connector are blocked by secure-default approval policy
+- [ ] Prove connector namespaces and ES/EN discovery coexist without collisions
+- [ ] Add Phase 4 end-to-end acceptance scenario and mark phase complete
 
 Exit condition: the first Kairoseth products can consume real business-system connectors through the same bridge contract regardless of deployment mode.
 
