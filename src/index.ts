@@ -12,6 +12,7 @@ export * from "./connectors/prestashop/connector.js";
 export * from "./connectors/sdk/circuit-breaker.js";
 export * from "./connectors/sdk/contracts.js";
 export * from "./connectors/sdk/errors.js";
+export * from "./connectors/sdk/inventory.js";
 export * from "./connectors/sdk/registry-adapter.js";
 export * from "./connectors/sdk/secrets.js";
 export * from "./connectors/sdk/validation.js";
