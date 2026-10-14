@@ -1,12 +1,17 @@
+import { Buffer } from "node:buffer";
+
 import type {
   RiskLevel,
   SupportedLocale,
   ToolDefinition,
 } from "../../core/contracts.js";
 import type { ToolRegistry } from "../../core/registry.js";
+import { canonicalJson } from "../../security/canonical-json.js";
 import type {
   A2AAgentCard,
   A2AAgentCardAdapterOptions,
+  A2AAgentExtension,
+  A2AAgentExtensionLocalizations,
   A2AAgentInterface,
   A2AAgentProvider,
   A2AAgentSkill,
@@ -19,6 +24,7 @@ const MAX_TEXT_LENGTH = 2_000;
 const MAX_VERSION_LENGTH = 64;
 const MAX_TENANT_LENGTH = 256;
 const MAX_TAG_LENGTH = 64;
+const MAX_EXTENSION_PARAMS_BYTES = 16 * 1024;
 const SECURITY_SCHEME_KEYS = new Set([
   "apiKeySecurityScheme",
   "httpAuthSecurityScheme",
@@ -31,9 +37,9 @@ const MEDIA_TYPE_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+*-]*$/;
 
 /**
- * A2A discovery adapter only. AgentSkill is descriptive metadata and MUST NOT
- * become an authorization source. Execution is added separately and will flow
- * through BridgeRuntime, exactly like MCP.
+ * A2A discovery adapter only. AgentSkill and AgentExtension are descriptive
+ * metadata and MUST NOT become authorization sources. Execution flows through
+ * BridgeRuntime, exactly like MCP.
  */
 export class A2AAgentCardAdapter {
   private readonly defaultLocale: SupportedLocale;
@@ -49,6 +55,7 @@ export class A2AAgentCardAdapter {
   private readonly securityRequirements:
     | readonly A2ASecurityRequirement[]
     | undefined;
+  private readonly extensions: A2AAgentExtensionLocalizations | undefined;
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -74,6 +81,9 @@ export class A2AAgentCardAdapter {
     this.securityRequirements = options.securityRequirements
       ? structuredClone(options.securityRequirements)
       : undefined;
+    this.extensions = options.extensions
+      ? structuredClone(options.extensions)
+      : undefined;
   }
 
   getAgentCard(
@@ -97,6 +107,9 @@ export class A2AAgentCardAdapter {
       capabilities: {
         streaming: false,
         pushNotifications: false,
+        ...(this.extensions
+          ? { extensions: structuredClone(this.extensions[locale]) }
+          : {}),
         extendedAgentCard: false,
       },
       ...(this.securitySchemes
@@ -199,6 +212,7 @@ function validateAgentOptions(options: A2AAgentCardAdapterOptions): void {
       options.securitySchemes,
     );
   }
+  if (options.extensions) validateLocalizedExtensions(options.extensions);
   normalizeMediaModes(
     options.defaultInputModes ?? DEFAULT_MEDIA_MODES,
     "defaultInputModes",
@@ -207,6 +221,92 @@ function validateAgentOptions(options: A2AAgentCardAdapterOptions): void {
     options.defaultOutputModes ?? DEFAULT_MEDIA_MODES,
     "defaultOutputModes",
   );
+}
+
+function validateLocalizedExtensions(
+  localizations: A2AAgentExtensionLocalizations,
+): void {
+  const canonicalByLocale = new Map<SupportedLocale, Map<string, string>>();
+
+  for (const locale of ["es", "en"] as const) {
+    const extensions = localizations[locale];
+    if (!Array.isArray(extensions) || extensions.length === 0) {
+      throw new Error(`A2A ${locale} extensions must contain at least one item.`);
+    }
+    const seen = new Set<string>();
+    const canonical = new Map<string, string>();
+    for (const extension of extensions) {
+      validateExtension(extension, locale);
+      if (seen.has(extension.uri)) {
+        throw new Error(`A2A ${locale} extensions contains a duplicate URI.`);
+      }
+      seen.add(extension.uri);
+      canonical.set(
+        extension.uri,
+        canonicalJson({
+          uri: extension.uri,
+          required: extension.required ?? false,
+          params: extension.params ?? {},
+        }),
+      );
+    }
+    canonicalByLocale.set(locale, canonical);
+  }
+
+  const es = canonicalByLocale.get("es")!;
+  const en = canonicalByLocale.get("en")!;
+  if (es.size !== en.size) {
+    throw new Error("A2A ES/EN extension declarations must expose the same URIs.");
+  }
+  for (const [uri, semantics] of es) {
+    if (en.get(uri) !== semantics) {
+      throw new Error(
+        `A2A ES/EN extension semantics must match for URI: ${uri}`,
+      );
+    }
+  }
+}
+
+function validateExtension(
+  extension: A2AAgentExtension,
+  locale: SupportedLocale,
+): void {
+  let uri: URL;
+  try {
+    uri = new URL(extension.uri);
+  } catch {
+    throw new Error(`A2A ${locale} extension URI is invalid.`);
+  }
+  if (
+    uri.protocol !== "https:" ||
+    uri.username ||
+    uri.password ||
+    uri.hash
+  ) {
+    throw new Error(
+      `A2A ${locale} extension URI must use HTTPS without credentials or fragments.`,
+    );
+  }
+  if (extension.description !== undefined) {
+    boundedText(extension.description, `A2A ${locale} extension description`);
+  }
+  if (
+    extension.required !== undefined &&
+    typeof extension.required !== "boolean"
+  ) {
+    throw new Error(`A2A ${locale} extension required flag is invalid.`);
+  }
+  if (extension.params !== undefined) {
+    let encoded: string;
+    try {
+      encoded = canonicalJson(extension.params);
+    } catch {
+      throw new Error(`A2A ${locale} extension params must be JSON-compatible.`);
+    }
+    if (Buffer.byteLength(encoded, "utf8") > MAX_EXTENSION_PARAMS_BYTES) {
+      throw new Error(`A2A ${locale} extension params exceed size limits.`);
+    }
+  }
 }
 
 function validateInterfaces(
