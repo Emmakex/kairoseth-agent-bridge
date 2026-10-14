@@ -131,38 +131,40 @@ export class ConnectorRegistryAdapter {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.defaultHealthTimeoutMs,
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    try {
-      return await instance.connector.health({
+    const probePromise: Promise<ConnectorHealthResult> = instance.connector
+      .health({
         connectorId: instance.connector.manifest.id,
         connectorInstanceId: instance.instanceId,
         config: instance.config ?? {},
         secrets: instance.secrets,
         signal: controller.signal,
-      });
-    } catch {
-      if (controller.signal.aborted) {
-        return {
+      })
+      .catch(() => ({
+        status: "unhealthy",
+        checkedAt: new Date().toISOString(),
+        details: { probe: "failed" },
+      }));
+
+    const timeoutPromise = new Promise<ConnectorHealthResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({
           status: "unhealthy",
           checkedAt: new Date().toISOString(),
           details: {
             probe: "timeout",
             timeoutMs: this.defaultHealthTimeoutMs,
           },
-        };
-      }
+        });
+      }, this.defaultHealthTimeoutMs);
+    });
 
-      return {
-        status: "unhealthy",
-        checkedAt: new Date().toISOString(),
-        details: { probe: "failed" },
-      };
+    try {
+      return await Promise.race([probePromise, timeoutPromise]);
     } finally {
-      clearTimeout(timeout);
+      if (timer) clearTimeout(timer);
     }
   }
 
