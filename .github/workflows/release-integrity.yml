@@ -1,0 +1,146 @@
+name: Release Integrity
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: release-integrity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-artifact:
+    name: Build and attest release artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify source tree
+        run: npm run check
+
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
+
+      - name: Build deterministic runtime archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+          NAME="agent-bridge-${VERSION}-${SHORT_SHA}"
+          ARCHIVE="release/${NAME}.tar.gz"
+
+          mkdir -p "release/stage/${NAME}/dist"
+          cp -R dist/src "release/stage/${NAME}/dist/src"
+          cp package.json package-lock.json README.md "release/stage/${NAME}/"
+
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -C release/stage \
+            -cf - "${NAME}" | gzip -n > "${ARCHIVE}"
+
+          ARTIFACT_SHA256="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+          SBOM_SHA256="$(sha256sum sbom.cdx.json | awk '{print $1}')"
+
+          printf '%s  %s\n' "${ARTIFACT_SHA256}" "${NAME}.tar.gz" > release/SHA256SUMS
+          printf '%s  %s\n' "${SBOM_SHA256}" "sbom.cdx.json" >> release/SHA256SUMS
+
+          node -e '
+            const fs = require("node:fs");
+            const manifest = {
+              schemaVersion: 1,
+              technicalProductId: "agent-bridge",
+              packageVersion: process.env.VERSION,
+              sourceCommit: process.env.GITHUB_SHA,
+              artifact: {
+                file: process.env.ARTIFACT_FILE,
+                sha256: process.env.ARTIFACT_SHA256,
+              },
+              sbom: {
+                format: "CycloneDX",
+                file: "sbom.cdx.json",
+                sha256: process.env.SBOM_SHA256,
+              },
+              build: {
+                node: process.version,
+                workflow: process.env.GITHUB_WORKFLOW,
+                runId: process.env.GITHUB_RUN_ID,
+                runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              },
+            };
+            fs.writeFileSync("release/release-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+          ' \
+          VERSION="${VERSION}" \
+          ARTIFACT_FILE="${NAME}.tar.gz" \
+          ARTIFACT_SHA256="${ARTIFACT_SHA256}" \
+          SBOM_SHA256="${SBOM_SHA256}"
+
+          cp sbom.cdx.json release/sbom.cdx.json
+
+          echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Attest CycloneDX SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+          sbom-path: sbom.cdx.json
+
+      - name: Collect local attestation bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "${RUNNER_TEMP}/created_attestation_paths.txt" ]]; then
+            mkdir -p release/attestations
+            while IFS= read -r attestation; do
+              [[ -n "${attestation}" ]] || continue
+              cp "${attestation}" release/attestations/
+            done < "${RUNNER_TEMP}/created_attestation_paths.txt"
+          fi
+
+      - name: Upload attested release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            release/SHA256SUMS
+            release/release-manifest.json
+            release/sbom.cdx.json
+            release/attestations
+          if-no-files-found: error
+          retention-days: 90
