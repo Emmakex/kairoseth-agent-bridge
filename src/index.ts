@@ -1,5 +1,7 @@
 export * from "./audit/outbox.js";
 export * from "./audit/sanitized-sink.js";
+export * from "./connectors/files/connector.js";
+export * from "./connectors/files/contracts.js";
 export * from "./connectors/generic-rest/contracts.js";
 export * from "./connectors/generic-rest/factory.js";
 export * from "./connectors/generic-rest/network.js";
