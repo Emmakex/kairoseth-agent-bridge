@@ -9,6 +9,7 @@ export * from "./connectors/mysql/connector.js";
 export * from "./connectors/mysql/contracts.js";
 export * from "./connectors/mysql/runtime.js";
 export * from "./connectors/prestashop/connector.js";
+export * from "./connectors/sdk/circuit-breaker.js";
 export * from "./connectors/sdk/contracts.js";
 export * from "./connectors/sdk/errors.js";
 export * from "./connectors/sdk/registry-adapter.js";
