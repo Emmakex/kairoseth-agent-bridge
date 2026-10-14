@@ -34,6 +34,7 @@ export * from "./core/audit.js";
 export * from "./core/contracts.js";
 export * from "./core/delegation-policy.js";
 export * from "./core/policy.js";
+export * from "./core/provenance.js";
 export * from "./core/registry.js";
 export * from "./identity/installation-identity.js";
 export * from "./identity/registration-proof.js";
