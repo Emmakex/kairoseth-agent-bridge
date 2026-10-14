@@ -256,7 +256,7 @@ Exit condition achieved: WooCommerce, PrestaShop, MySQL and Files coexist in one
 
 ## Phase 5 — A2A + agent interoperability
 
-Status: **in progress**
+Status: **complete**
 
 - [x] Implement A2A 1.0 Agent Card / skill discovery adapter over ToolRegistry
 - [x] Reuse the core ES/EN localization contract for A2A Agent Card and skill metadata
@@ -271,13 +271,22 @@ Status: **in progress**
 - [x] Add signed delegated authorization with exact tool/risk scope and fail-closed revocation hooks
 - [x] Prove delegated WRITE access still requires the normal Kairoseth action approval
 - [x] Add ES/EN identity/delegation documentation and integrated acceptance coverage
-- [ ] Add invocation provenance
-- [ ] Add cross-agent correlation and audit
-- [ ] Add official A2A transport/SDK interoperability and Phase 5 end-to-end acceptance
+- [x] Add protocol-neutral invocation provenance with root/parent correlation lineage
+- [x] Add sanitized cross-agent correlation and durable audit propagation
+- [x] Preserve original provenance across approval-required A2A task resume
+- [x] Add ES/EN invocation provenance documentation
+- [x] Pin `@a2a-js/sdk` 1.3.0 as the official interoperability test client
+- [x] Parse Kairoseth Agent Card through the official A2A SDK v1 ProtoJSON model
+- [x] Validate official JSON-RPC `SendMessage` READ execution and JSON Artifact decoding
+- [x] Validate official JSON-RPC WRITE -> `TASK_STATE_AUTH_REQUIRED` with zero side effects
+- [x] Validate official SDK `GetTask` for the approval-required task lifecycle
+- [x] Validate `A2A-Version: 1.0` and `A2A-Extensions` negotiation
+- [x] Keep A2A v0.3 compatibility disabled by default and document explicit opt-in only
+- [x] Add Phase 5 end-to-end official SDK acceptance and ES/EN interoperability documentation
 
 Production-durable/clustered A2A task storage remains part of Phase 6 hardening; the Phase 5 baseline uses an injectable task-store contract with a scope-safe in-memory implementation for local/dev/tests.
 
-Exit condition: MCP, A2A and Kairoseth-native callers share one execution and policy core, with authenticated agent identity, delegated authorization, provenance and common audit semantics.
+Exit condition achieved: MCP, A2A and Kairoseth-native callers share one execution and policy core. A2A v1 callers can discover Kairoseth tools and use the official JavaScript SDK JSON-RPC client for SendMessage/GetTask while authenticated identity, signed delegation, action approval, provenance, correlation and audit remain authoritative Kairoseth controls.
 
 ## Phase 6 — Production hardening
 
