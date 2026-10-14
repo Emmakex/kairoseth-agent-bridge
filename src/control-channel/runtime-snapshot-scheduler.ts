@@ -1,11 +1,12 @@
 import type { ControlSession } from "./session.js";
-import type {
-  RuntimeSnapshotAck,
-  RuntimeSnapshotReporter,
-} from "./runtime-snapshot.js";
+import type { RuntimeSnapshotAck } from "./runtime-snapshot.js";
 
 export interface RuntimeSnapshotSessionSource {
   getCurrentSession(): ControlSession | null;
+}
+
+export interface RuntimeSnapshotReportSource {
+  report(accessToken: string): Promise<RuntimeSnapshotAck>;
 }
 
 export interface RuntimeSnapshotSchedulerOptions {
@@ -42,7 +43,7 @@ export class RuntimeSnapshotScheduler {
 
   constructor(
     private readonly sessionSource: RuntimeSnapshotSessionSource,
-    private readonly reporter: RuntimeSnapshotReporter,
+    private readonly reporter: RuntimeSnapshotReportSource,
     private readonly options: RuntimeSnapshotSchedulerOptions = {},
   ) {
     this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
