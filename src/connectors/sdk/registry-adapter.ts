@@ -121,8 +121,9 @@ export class ConnectorRegistryAdapter {
    */
   async health(instance: ConnectorInstance): Promise<ConnectorHealthResult> {
     validateConnectorDefinition(instance.connector);
+    const healthProbe = instance.connector.health;
 
-    if (!instance.connector.health) {
+    if (!healthProbe) {
       return {
         status: "healthy",
         checkedAt: new Date().toISOString(),
@@ -133,14 +134,17 @@ export class ConnectorRegistryAdapter {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const probePromise: Promise<ConnectorHealthResult> = instance.connector
-      .health({
-        connectorId: instance.connector.manifest.id,
-        connectorInstanceId: instance.instanceId,
-        config: instance.config ?? {},
-        secrets: instance.secrets,
-        signal: controller.signal,
-      })
+    const probePromise: Promise<ConnectorHealthResult> = Promise.resolve()
+      .then(
+        async () =>
+          await healthProbe({
+            connectorId: instance.connector.manifest.id,
+            connectorInstanceId: instance.instanceId,
+            config: instance.config ?? {},
+            secrets: instance.secrets,
+            signal: controller.signal,
+          }),
+      )
       .catch(() => ({
         status: "unhealthy",
         checkedAt: new Date().toISOString(),
