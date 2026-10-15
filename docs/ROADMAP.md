@@ -290,7 +290,7 @@ Exit condition achieved: MCP, A2A and Kairoseth-native callers share one executi
 
 ## Phase 6 — Production hardening
 
-Status: **in progress**
+Status: **in progress — packaging, installed rollback, durable A2A storage and operator surfaces remain**
 
 - [x] Encrypted temporary local queue
 - [x] General replay/idempotency hardening for clustered/shared deployments
@@ -298,12 +298,20 @@ Status: **in progress**
 - [x] Circuit breakers
 - [x] Connector health isolation
 - [x] Credential rotation hooks
-- [ ] Signed releases
-- [ ] SBOM
-- [ ] Security scanning
-- [ ] Threat model
-- [ ] Failure/rollback drills
-- [ ] Installation/update strategy for local bridge
+- [x] Reproducible dependency installation with committed lockfile and `npm ci`
+- [x] CycloneDX SBOM generation and artifact retention baseline
+- [x] Production dependency audit with `npm audit`
+- [x] CodeQL `security-extended` static analysis baseline
+- [x] Threat model v1
+- [x] Deterministic release-candidate runtime archive with SHA-256 manifest
+- [x] SLSA build provenance attestation for release-candidate runtime artifacts
+- [x] CycloneDX SBOM attestation bound to the same runtime artifact
+- [x] Executable failure drills for snapshot outage, fatal coordinator failure, WRITE redelivery and circuit isolation
+- [x] Installation/update and anti-downgrade strategy for local bridge
+- [x] Exact trusted rollback policy at the release-descriptor level
+- [ ] Stable tagged/signed release promotion policy
+- [ ] Installed rollback drill against a packaged runtime
+- [ ] Production-durable/clustered A2A task storage
 - [ ] Docker packaging
 - [ ] Linux service packaging
 - [ ] Windows service packaging
@@ -323,11 +331,16 @@ Hardening completed so far:
 - tool-level circuit state is projected into `available` / `degraded` / `blocked` health without changing policy, approvals or authorization;
 - metadata-only credential rotation blocks new instance execution until SecretProvider and connector refresh hooks complete;
 - failed/timed-out credential rotation remains fail-closed, suppresses raw backend errors and projects `credential_rotation` into health;
-- applied rotation IDs have bounded in-process idempotency receipts while connector/provider hooks remain restart-safe and idempotent by contract.
+- applied rotation IDs have bounded in-process idempotency receipts while connector/provider hooks remain restart-safe and idempotent by contract;
+- locked dependency installation, SBOM generation, production dependency audit and CodeQL scanning are enforced in CI;
+- release-candidate artifacts are deterministic, checksum-verified and carry SLSA provenance plus CycloneDX SBOM attestations;
+- the Phase 6 threat model and executable failure-drill suite are versioned with the runtime;
+- update decisions reject version/digest collisions, block untrusted downgrades and allow rollback only to an exact trusted previous release descriptor;
+- runtime artifact verification streams SHA-256 and fails closed before activation.
 
-See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md` and `docs/CREDENTIAL_ROTATION.md`.
+See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md` and `docs/INSTALLATION_UPDATE_STRATEGY.md`.
 
-Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations.
+Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage and operator visibility.
 
 ## Product integration order
 
