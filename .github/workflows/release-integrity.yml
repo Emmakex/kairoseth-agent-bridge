@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "src/**"
+      - "scripts/**"
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - "src/**"
+      - "scripts/**"
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
@@ -60,7 +62,7 @@ jobs:
       - name: Verify source tree
         run: npm run check
 
-      - name: Generate CycloneDX SBOM
+      - name: Generate CycloneDX application SBOM
         run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
 
       - name: Build deterministic runtime archive
@@ -131,50 +133,73 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Build OCI image from verified prebuilt runtime
+      - name: Build OCI image and extract image SPDX SBOM
         id: oci
         shell: bash
         env:
-          SOURCE_DATE_EPOCH: ${{ github.event.head_commit.timestamp }}
+          COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.package.outputs.version }}"
           NAME="${{ steps.package.outputs.name }}"
           CONTEXT="${{ steps.package.outputs.context }}"
           OCI_ARCHIVE="release/${NAME}.oci.tar"
-          METADATA="release/oci-build-metadata.json"
+          BUILD_METADATA="release/oci-build-metadata.json"
+          OCI_LAYOUT="release/oci-layout"
+          OCI_SBOM="release/oci-sbom.spdx.json"
+          OCI_SBOM_METADATA="release/oci-sbom-metadata.json"
 
-          if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
-            SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          if [[ -n "${COMMIT_TIMESTAMP:-}" ]]; then
+            SOURCE_DATE_EPOCH="$(date -d "$COMMIT_TIMESTAMP" +%s)"
           else
-            SOURCE_DATE_EPOCH="$(date -d "$SOURCE_DATE_EPOCH" +%s)"
+            SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
           fi
-          export SOURCE_DATE_EPOCH
 
           docker buildx build \
             --platform linux/amd64 \
             --file packaging/docker/Dockerfile.release \
             --build-arg "KAB_VERSION=${VERSION}" \
             --build-arg "KAB_REVISION=${GITHUB_SHA}" \
+            --build-arg "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" \
             --provenance=false \
-            --metadata-file "${METADATA}" \
+            --sbom=true \
+            --metadata-file "${BUILD_METADATA}" \
             --output "type=oci,dest=${OCI_ARCHIVE},name=agent-bridge:${VERSION}" \
             "${CONTEXT}"
 
           OCI_ARCHIVE_SHA256="$(sha256sum "${OCI_ARCHIVE}" | awk '{print $1}')"
-          OCI_MANIFEST_DIGEST="$(node -e '
+          OCI_EXPORT_DIGEST="$(node -e '
             const fs = require("node:fs");
             const metadata = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const digest = metadata["containerimage.digest"];
             if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/i.test(digest)) process.exit(1);
             process.stdout.write(digest.toLowerCase());
-          ' "${METADATA}")"
+          ' "${BUILD_METADATA}")"
+
+          mkdir -p "${OCI_LAYOUT}"
+          tar -xf "${OCI_ARCHIVE}" -C "${OCI_LAYOUT}"
+          node scripts/extract-oci-sbom.mjs \
+            "${OCI_LAYOUT}" \
+            "${OCI_SBOM}" \
+            linux amd64 > "${OCI_SBOM_METADATA}"
+
+          OCI_PLATFORM_MANIFEST_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).platformManifestDigest' "${OCI_SBOM_METADATA}")"
+          OCI_ATTESTATION_MANIFEST_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).attestationManifestDigest' "${OCI_SBOM_METADATA}")"
+          OCI_SBOM_BLOB_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).sbomBlobDigest' "${OCI_SBOM_METADATA}")"
+          OCI_SBOM_PACKAGE_COUNT="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).packageCount' "${OCI_SBOM_METADATA}")"
+          OCI_SBOM_SHA256="$(sha256sum "${OCI_SBOM}" | awk '{print $1}')"
 
           printf '%s  %s\n' "${OCI_ARCHIVE_SHA256}" "${NAME}.oci.tar" >> release/SHA256SUMS
+          printf '%s  %s\n' "${OCI_SBOM_SHA256}" "oci-sbom.spdx.json" >> release/SHA256SUMS
 
           OCI_FILE="${NAME}.oci.tar" \
           OCI_ARCHIVE_SHA256="${OCI_ARCHIVE_SHA256}" \
-          OCI_MANIFEST_DIGEST="${OCI_MANIFEST_DIGEST}" \
+          OCI_EXPORT_DIGEST="${OCI_EXPORT_DIGEST}" \
+          OCI_PLATFORM_MANIFEST_DIGEST="${OCI_PLATFORM_MANIFEST_DIGEST}" \
+          OCI_ATTESTATION_MANIFEST_DIGEST="${OCI_ATTESTATION_MANIFEST_DIGEST}" \
+          OCI_SBOM_BLOB_DIGEST="${OCI_SBOM_BLOB_DIGEST}" \
+          OCI_SBOM_PACKAGE_COUNT="${OCI_SBOM_PACKAGE_COUNT}" \
+          OCI_SBOM_SHA256="${OCI_SBOM_SHA256}" \
           node -e '
             const fs = require("node:fs");
             const path = "release/release-manifest.json";
@@ -183,9 +208,20 @@ jobs:
               format: "OCI image layout tar",
               file: process.env.OCI_FILE,
               archiveSha256: process.env.OCI_ARCHIVE_SHA256,
-              manifestDigest: process.env.OCI_MANIFEST_DIGEST,
+              exportDigest: process.env.OCI_EXPORT_DIGEST,
+              manifestDigest: process.env.OCI_PLATFORM_MANIFEST_DIGEST,
               platform: "linux/amd64",
               applicationBuildSource: "release/stage prebuilt dist/src",
+              sbom: {
+                format: "SPDX",
+                file: "oci-sbom.spdx.json",
+                sha256: process.env.OCI_SBOM_SHA256,
+                scope: "container-image",
+                subjectManifestDigest: process.env.OCI_PLATFORM_MANIFEST_DIGEST,
+                attestationManifestDigest: process.env.OCI_ATTESTATION_MANIFEST_DIGEST,
+                sbomBlobDigest: process.env.OCI_SBOM_BLOB_DIGEST,
+                packageCount: Number(process.env.OCI_SBOM_PACKAGE_COUNT),
+              },
             };
             fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
             fs.writeFileSync(
@@ -194,9 +230,10 @@ jobs:
             );
           '
 
-          rm -f "${METADATA}"
+          rm -rf "${OCI_LAYOUT}" "${BUILD_METADATA}" "${OCI_SBOM_METADATA}"
           echo "archive=${OCI_ARCHIVE}" >> "$GITHUB_OUTPUT"
-          echo "manifest-digest=${OCI_MANIFEST_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "manifest-digest=${OCI_PLATFORM_MANIFEST_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "sbom=${OCI_SBOM}" >> "$GITHUB_OUTPUT"
 
       - name: Verify release checksums
         working-directory: release
@@ -213,6 +250,13 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.oci.outputs.archive }}
+
+      - name: Attest OCI image SPDX SBOM
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.oci.outputs.archive }}
+          sbom-path: ${{ steps.oci.outputs.sbom }}
 
       - name: Attest CycloneDX application SBOM
         if: github.event_name != 'pull_request'
@@ -247,6 +291,7 @@ jobs:
             release/SHA256SUMS
             release/release-manifest.json
             release/oci-image.json
+            release/oci-sbom.spdx.json
             release/sbom.cdx.json
             release/attestations
           if-no-files-found: error
