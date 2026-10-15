@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -33,6 +33,20 @@ jobs:
 
       - name: Typecheck, test and build
         run: npm run check
+
+      - name: Build and inspect Docker runtime
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          docker build \
+            --build-arg KAB_VERSION="$VERSION" \
+            --build-arg KAB_REVISION="$GITHUB_SHA" \
+            --tag agent-bridge:ci \
+            .
+          test "$(docker image inspect agent-bridge:ci --format '{{.Config.User}}')" = "node"
+          test "$(docker image inspect agent-bridge:ci --format '{{json .Config.ExposedPorts}}')" = "null"
+          test "$(docker image inspect agent-bridge:ci --format '{{json .Config.Healthcheck.Test}}')" != "null"
+          docker run --rm --entrypoint node agent-bridge:ci \
+            -e "import('./dist/src/index.js').then((m) => { if (!m.ProductionRuntime || !m.FileRuntimeProcessStatusStore) process.exit(1); })"
 
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
