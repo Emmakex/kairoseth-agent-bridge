@@ -180,21 +180,46 @@ function validateAttestationManifestSubject(attestationManifest, subjectDigest) 
   }
 }
 
-function findSpdxLayer(attestationManifest) {
+async function findSpdxAttestation(layoutDir, attestationManifest) {
   if (!Array.isArray(attestationManifest.layers)) {
     fail("attestation manifest does not contain layers.");
   }
 
-  const matches = attestationManifest.layers.filter((layer) => {
-    if (!layer || typeof layer !== "object") return false;
-    return (
-      layer.mediaType === IN_TOTO_MEDIA_TYPE &&
-      layer.annotations?.["in-toto.io/predicate-type"] === SPDX_PREDICATE_TYPE
+  const matches = [];
+  for (const layer of attestationManifest.layers) {
+    if (!layer || typeof layer !== "object") continue;
+    if (layer.mediaType !== IN_TOTO_MEDIA_TYPE) continue;
+
+    const digest = requireDigest(layer.digest, "in-toto attestation blob digest");
+    const statement = requireObject(
+      await readJson(blobPath(layoutDir, digest), "in-toto attestation statement"),
+      "in-toto attestation statement",
     );
-  });
+    const predicateType = statement.predicateType;
+    if (typeof predicateType !== "string" || predicateType.length === 0) {
+      fail(`in-toto statement ${digest} is missing predicateType.`);
+    }
+
+    const descriptorPredicate =
+      layer.annotations?.["in-toto.io/predicate-type"];
+    if (
+      descriptorPredicate !== undefined &&
+      descriptorPredicate !== predicateType
+    ) {
+      fail(
+        `in-toto layer predicate annotation conflicts with statement ${digest}.`,
+      );
+    }
+
+    if (predicateType === SPDX_PREDICATE_TYPE) {
+      matches.push({ layer, digest, statement });
+    }
+  }
 
   if (matches.length !== 1) {
-    fail(`expected exactly one SPDX SBOM layer, found ${matches.length}.`);
+    fail(
+      `expected exactly one SPDX in-toto statement, found ${matches.length}.`,
+    );
   }
   return matches[0];
 }
@@ -222,7 +247,17 @@ function validateSpdxStatement(statement, subjectDigest) {
       subject.digest.sha256.toLowerCase() === expectedHex,
   );
   if (!bound) {
-    fail("SPDX statement is not bound to the expected platform manifest digest.");
+    const observed = statement.subject
+      .map((subject) =>
+        subject && typeof subject === "object" && subject.digest
+          ? subject.digest.sha256
+          : undefined,
+      )
+      .filter((value) => typeof value === "string")
+      .join(",");
+    fail(
+      `SPDX statement is not bound to the expected platform manifest digest (${subjectDigest}); observed sha256 subjects: ${observed || "none"}.`,
+    );
   }
 
   const predicate = requireObject(statement.predicate, "SPDX predicate");
@@ -279,13 +314,15 @@ export async function extractOciSbom({
     platformManifestDigest,
   );
 
-  const sbomLayer = findSpdxLayer(attestationManifest);
-  const sbomBlobDigest = requireDigest(sbomLayer.digest, "SPDX SBOM blob digest");
-  const statement = requireObject(
-    await readJson(blobPath(absoluteLayout, sbomBlobDigest), "SPDX SBOM statement"),
-    "SPDX SBOM statement",
+  const sbomAttestation = await findSpdxAttestation(
+    absoluteLayout,
+    attestationManifest,
   );
-  const spdx = validateSpdxStatement(statement, platformManifestDigest);
+  const sbomBlobDigest = sbomAttestation.digest;
+  const spdx = validateSpdxStatement(
+    sbomAttestation.statement,
+    platformManifestDigest,
+  );
 
   await writeFile(outputPath, `${JSON.stringify(spdx, null, 2)}\n`, "utf8");
 
