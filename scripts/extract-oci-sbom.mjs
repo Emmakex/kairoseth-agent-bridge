@@ -6,6 +6,12 @@ import { resolve } from "node:path";
 const SHA256_DIGEST = /^sha256:([a-f0-9]{64})$/i;
 const ATTESTATION_REFERENCE_TYPE = "attestation-manifest";
 const SPDX_PREDICATE_TYPE = "https://spdx.dev/Document";
+const OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json";
+const IN_TOTO_MEDIA_TYPE = "application/vnd.in-toto+json";
+const SUPPORTED_STATEMENT_TYPES = new Set([
+  "https://in-toto.io/Statement/v0.1",
+  "https://in-toto.io/Statement/v1",
+]);
 
 function fail(message) {
   throw new Error(`OCI SBOM extraction failed: ${message}`);
@@ -46,28 +52,97 @@ function blobPath(layoutDir, digest) {
   return resolve(layoutDir, "blobs", "sha256", hex);
 }
 
-function platformMatches(descriptor, os, architecture) {
+function isAttestationDescriptor(descriptor) {
   return (
     descriptor &&
     typeof descriptor === "object" &&
-    descriptor.platform?.os === os &&
-    descriptor.platform?.architecture === architecture &&
-    descriptor.annotations?.["vnd.docker.reference.type"] !==
+    descriptor.annotations?.["vnd.docker.reference.type"] ===
       ATTESTATION_REFERENCE_TYPE
   );
 }
 
-function findPlatformManifest(index, os, architecture) {
+async function inspectRunnableManifest(layoutDir, descriptor) {
+  if (!descriptor || typeof descriptor !== "object") return null;
+  if (isAttestationDescriptor(descriptor)) return null;
+  if (
+    descriptor.mediaType !== undefined &&
+    descriptor.mediaType !== OCI_IMAGE_MANIFEST
+  ) {
+    return null;
+  }
+
+  const manifestDigest = requireDigest(
+    descriptor.digest,
+    "runnable manifest digest",
+  );
+  const manifest = requireObject(
+    await readJson(blobPath(layoutDir, manifestDigest), "runnable image manifest"),
+    "runnable image manifest",
+  );
+  if (
+    manifest.mediaType !== undefined &&
+    manifest.mediaType !== OCI_IMAGE_MANIFEST
+  ) {
+    fail(`runnable manifest ${manifestDigest} has an unexpected media type.`);
+  }
+
+  const configDescriptor = requireObject(
+    manifest.config,
+    `image config descriptor for ${manifestDigest}`,
+  );
+  const configDigest = requireDigest(
+    configDescriptor.digest,
+    `image config digest for ${manifestDigest}`,
+  );
+  const config = requireObject(
+    await readJson(blobPath(layoutDir, configDigest), "OCI image config"),
+    "OCI image config",
+  );
+  if (typeof config.os !== "string" || typeof config.architecture !== "string") {
+    fail(`image config ${configDigest} is missing required platform fields.`);
+  }
+
+  const descriptorPlatform = descriptor.platform;
+  if (
+    descriptorPlatform &&
+    typeof descriptorPlatform === "object" &&
+    ((descriptorPlatform.os && descriptorPlatform.os !== config.os) ||
+      (descriptorPlatform.architecture &&
+        descriptorPlatform.architecture !== config.architecture))
+  ) {
+    fail(
+      `index platform metadata conflicts with image config for ${manifestDigest}.`,
+    );
+  }
+
+  return {
+    descriptor,
+    manifest,
+    manifestDigest,
+    configDigest,
+    os: config.os,
+    architecture: config.architecture,
+  };
+}
+
+async function findPlatformManifest(layoutDir, index, os, architecture) {
   if (!Array.isArray(index.manifests)) {
     fail("OCI index does not contain a manifests array.");
   }
 
-  const matches = index.manifests.filter((descriptor) =>
-    platformMatches(descriptor, os, architecture),
+  const inspected = [];
+  for (const descriptor of index.manifests) {
+    const candidate = await inspectRunnableManifest(layoutDir, descriptor);
+    if (candidate) inspected.push(candidate);
+  }
+
+  const matches = inspected.filter(
+    (candidate) =>
+      candidate.os === os && candidate.architecture === architecture,
   );
   if (matches.length !== 1) {
     fail(
-      `expected exactly one ${os}/${architecture} image manifest, found ${matches.length}.`,
+      `expected exactly one ${os}/${architecture} runnable image manifest, found ${matches.length}.`,
     );
   }
 
@@ -93,6 +168,18 @@ function findAttestationManifest(index, subjectDigest) {
   return matches[0];
 }
 
+function validateAttestationManifestSubject(attestationManifest, subjectDigest) {
+  if (!attestationManifest.subject) return;
+  const subject = requireObject(
+    attestationManifest.subject,
+    "attestation manifest subject",
+  );
+  const digest = requireDigest(subject.digest, "attestation manifest subject digest");
+  if (digest !== subjectDigest) {
+    fail("attestation manifest subject does not match the runnable image manifest.");
+  }
+}
+
 function findSpdxLayer(attestationManifest) {
   if (!Array.isArray(attestationManifest.layers)) {
     fail("attestation manifest does not contain layers.");
@@ -101,6 +188,7 @@ function findSpdxLayer(attestationManifest) {
   const matches = attestationManifest.layers.filter((layer) => {
     if (!layer || typeof layer !== "object") return false;
     return (
+      layer.mediaType === IN_TOTO_MEDIA_TYPE &&
       layer.annotations?.["in-toto.io/predicate-type"] === SPDX_PREDICATE_TYPE
     );
   });
@@ -113,7 +201,7 @@ function findSpdxLayer(attestationManifest) {
 
 function validateSpdxStatement(statement, subjectDigest) {
   requireObject(statement, "SBOM in-toto statement");
-  if (statement._type !== "https://in-toto.io/Statement/v0.1") {
+  if (!SUPPORTED_STATEMENT_TYPES.has(statement._type)) {
     fail("SBOM statement has an unsupported in-toto type.");
   }
   if (statement.predicateType !== SPDX_PREDICATE_TYPE) {
@@ -163,11 +251,13 @@ export async function extractOciSbom({
     "OCI index",
   );
 
-  const platformDescriptor = findPlatformManifest(index, os, architecture);
-  const platformManifestDigest = requireDigest(
-    platformDescriptor.digest,
-    "platform manifest digest",
+  const platform = await findPlatformManifest(
+    absoluteLayout,
+    index,
+    os,
+    architecture,
   );
+  const platformManifestDigest = platform.manifestDigest;
 
   const attestationDescriptor = findAttestationManifest(
     index,
@@ -184,6 +274,10 @@ export async function extractOciSbom({
     ),
     "attestation manifest",
   );
+  validateAttestationManifestSubject(
+    attestationManifest,
+    platformManifestDigest,
+  );
 
   const sbomLayer = findSpdxLayer(attestationManifest);
   const sbomBlobDigest = requireDigest(sbomLayer.digest, "SPDX SBOM blob digest");
@@ -198,6 +292,7 @@ export async function extractOciSbom({
   return {
     platform: `${os}/${architecture}`,
     platformManifestDigest,
+    platformConfigDigest: platform.configDigest,
     attestationManifestDigest,
     sbomBlobDigest,
     packageCount: spdx.packages.length,
