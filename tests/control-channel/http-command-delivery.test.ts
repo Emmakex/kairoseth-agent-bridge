@@ -50,7 +50,7 @@ function session(): ControlSession {
 }
 
 test("HTTP command transport uses bearer auth and bounded pull contract", async () => {
-  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
   const transport = new HttpCommandTransport({
     baseUrl: "https://kairoseth.example",
     fetch: async (input, init) => {
