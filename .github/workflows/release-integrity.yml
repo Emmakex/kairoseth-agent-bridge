@@ -13,6 +13,16 @@ on:
       - "Dockerfile"
       - "packaging/docker/**"
       - ".github/workflows/release-integrity.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "README.md"
+      - "Dockerfile"
+      - "packaging/docker/**"
+      - ".github/workflows/release-integrity.yml"
   workflow_dispatch:
 
 permissions:
@@ -193,22 +203,26 @@ jobs:
         run: sha256sum --check SHA256SUMS
 
       - name: Attest runtime archive provenance
+        if: github.event_name != 'pull_request'
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
       - name: Attest OCI archive provenance
+        if: github.event_name != 'pull_request'
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.oci.outputs.archive }}
 
       - name: Attest CycloneDX application SBOM
+        if: github.event_name != 'pull_request'
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.package.outputs.archive }}
           sbom-path: sbom.cdx.json
 
       - name: Collect local attestation bundles
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -223,6 +237,7 @@ jobs:
           fi
 
       - name: Upload attested release bundle
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.name }}
