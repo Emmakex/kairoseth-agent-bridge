@@ -77,4 +77,5 @@ export * from "./security/rate-limit.js";
 export * from "./storage/encrypted-local-queue.js";
 export * from "./storage/local-queue-key-provider.js";
 export * from "./update/artifact-integrity.js";
+export * from "./update/docker-activation-plan.js";
 export * from "./update/release-update-policy.js";
