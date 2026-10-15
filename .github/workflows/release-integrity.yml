@@ -10,6 +10,18 @@ on:
       - "package-lock.json"
       - "tsconfig.json"
       - "README.md"
+      - "Dockerfile"
+      - "packaging/docker/**"
+      - ".github/workflows/release-integrity.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "README.md"
+      - "Dockerfile"
+      - "packaging/docker/**"
       - ".github/workflows/release-integrity.yml"
   workflow_dispatch:
 
@@ -27,7 +39,7 @@ jobs:
   release-artifact:
     name: Build and attest release artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -38,6 +50,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
@@ -57,10 +72,11 @@ jobs:
           SHORT_SHA="${GITHUB_SHA:0:12}"
           NAME="agent-bridge-${VERSION}-${SHORT_SHA}"
           ARCHIVE="release/${NAME}.tar.gz"
+          CONTEXT="release/stage/${NAME}"
 
-          mkdir -p "release/stage/${NAME}/dist"
-          cp -R dist/src "release/stage/${NAME}/dist/src"
-          cp package.json package-lock.json README.md "release/stage/${NAME}/"
+          mkdir -p "${CONTEXT}/dist"
+          cp -R dist/src "${CONTEXT}/dist/src"
+          cp package.json package-lock.json README.md "${CONTEXT}/"
 
           tar \
             --sort=name \
@@ -96,6 +112,7 @@ jobs:
                 format: "CycloneDX",
                 file: "sbom.cdx.json",
                 sha256: process.env.SBOM_SHA256,
+                scope: "application-dependencies",
               },
               build: {
                 node: process.version,
@@ -110,24 +127,102 @@ jobs:
           cp sbom.cdx.json release/sbom.cdx.json
 
           echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "context=${CONTEXT}" >> "$GITHUB_OUTPUT"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build OCI image from verified prebuilt runtime
+        id: oci
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: ${{ github.event.head_commit.timestamp }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          NAME="${{ steps.package.outputs.name }}"
+          CONTEXT="${{ steps.package.outputs.context }}"
+          OCI_ARCHIVE="release/${NAME}.oci.tar"
+          METADATA="release/oci-build-metadata.json"
+
+          if [[ -z "${SOURCE_DATE_EPOCH:-}" ]]; then
+            SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          else
+            SOURCE_DATE_EPOCH="$(date -d "$SOURCE_DATE_EPOCH" +%s)"
+          fi
+          export SOURCE_DATE_EPOCH
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --file packaging/docker/Dockerfile.release \
+            --build-arg "KAB_VERSION=${VERSION}" \
+            --build-arg "KAB_REVISION=${GITHUB_SHA}" \
+            --provenance=false \
+            --metadata-file "${METADATA}" \
+            --output "type=oci,dest=${OCI_ARCHIVE},name=agent-bridge:${VERSION}" \
+            "${CONTEXT}"
+
+          OCI_ARCHIVE_SHA256="$(sha256sum "${OCI_ARCHIVE}" | awk '{print $1}')"
+          OCI_MANIFEST_DIGEST="$(node -e '
+            const fs = require("node:fs");
+            const metadata = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const digest = metadata["containerimage.digest"];
+            if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/i.test(digest)) process.exit(1);
+            process.stdout.write(digest.toLowerCase());
+          ' "${METADATA}")"
+
+          printf '%s  %s\n' "${OCI_ARCHIVE_SHA256}" "${NAME}.oci.tar" >> release/SHA256SUMS
+
+          OCI_FILE="${NAME}.oci.tar" \
+          OCI_ARCHIVE_SHA256="${OCI_ARCHIVE_SHA256}" \
+          OCI_MANIFEST_DIGEST="${OCI_MANIFEST_DIGEST}" \
+          node -e '
+            const fs = require("node:fs");
+            const path = "release/release-manifest.json";
+            const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+            manifest.ociImage = {
+              format: "OCI image layout tar",
+              file: process.env.OCI_FILE,
+              archiveSha256: process.env.OCI_ARCHIVE_SHA256,
+              manifestDigest: process.env.OCI_MANIFEST_DIGEST,
+              platform: "linux/amd64",
+              applicationBuildSource: "release/stage prebuilt dist/src",
+            };
+            fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+            fs.writeFileSync(
+              "release/oci-image.json",
+              JSON.stringify(manifest.ociImage, null, 2) + "\n",
+            );
+          '
+
+          rm -f "${METADATA}"
+          echo "archive=${OCI_ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "manifest-digest=${OCI_MANIFEST_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Verify release checksums
         working-directory: release
         run: sha256sum --check SHA256SUMS
 
-      - name: Attest build provenance
+      - name: Attest runtime archive provenance
+        if: github.event_name != 'pull_request'
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
-      - name: Attest CycloneDX SBOM
+      - name: Attest OCI archive provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.oci.outputs.archive }}
+
+      - name: Attest CycloneDX application SBOM
+        if: github.event_name != 'pull_request'
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.package.outputs.archive }}
           sbom-path: sbom.cdx.json
 
       - name: Collect local attestation bundles
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -142,13 +237,16 @@ jobs:
           fi
 
       - name: Upload attested release bundle
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.name }}
           path: |
             ${{ steps.package.outputs.archive }}
+            ${{ steps.oci.outputs.archive }}
             release/SHA256SUMS
             release/release-manifest.json
+            release/oci-image.json
             release/sbom.cdx.json
             release/attestations
           if-no-files-found: error
