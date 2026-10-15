@@ -6,8 +6,10 @@ import { resolve } from "node:path";
 const SHA256_DIGEST = /^sha256:([a-f0-9]{64})$/i;
 const ATTESTATION_REFERENCE_TYPE = "attestation-manifest";
 const SPDX_PREDICATE_TYPE = "https://spdx.dev/Document";
+const OCI_IMAGE_INDEX = "application/vnd.oci.image.index.v1+json";
 const OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json";
 const IN_TOTO_MEDIA_TYPE = "application/vnd.in-toto+json";
+const MAX_INDEX_DEPTH = 8;
 const SUPPORTED_STATEMENT_TYPES = new Set([
   "https://in-toto.io/Statement/v0.1",
   "https://in-toto.io/Statement/v1",
@@ -59,6 +61,57 @@ function isAttestationDescriptor(descriptor) {
     descriptor.annotations?.["vnd.docker.reference.type"] ===
       ATTESTATION_REFERENCE_TYPE
   );
+}
+
+async function flattenIndexDescriptors(
+  layoutDir,
+  index,
+  depth = 0,
+  visited = new Set(),
+) {
+  if (depth > MAX_INDEX_DEPTH) {
+    fail(`OCI index nesting exceeds ${MAX_INDEX_DEPTH} levels.`);
+  }
+  if (!Array.isArray(index.manifests)) {
+    fail("OCI index does not contain a manifests array.");
+  }
+
+  const leaves = [];
+  for (const descriptor of index.manifests) {
+    if (!descriptor || typeof descriptor !== "object") {
+      fail("OCI index contains an invalid descriptor.");
+    }
+
+    if (descriptor.mediaType !== OCI_IMAGE_INDEX) {
+      leaves.push(descriptor);
+      continue;
+    }
+
+    const digest = requireDigest(descriptor.digest, "nested OCI index digest");
+    if (visited.has(digest)) {
+      fail(`OCI index nesting contains a cycle at ${digest}.`);
+    }
+    visited.add(digest);
+
+    const nested = requireObject(
+      await readJson(blobPath(layoutDir, digest), `nested OCI index ${digest}`),
+      `nested OCI index ${digest}`,
+    );
+    if (nested.mediaType !== undefined && nested.mediaType !== OCI_IMAGE_INDEX) {
+      fail(`nested OCI index ${digest} has an unexpected media type.`);
+    }
+
+    leaves.push(
+      ...(await flattenIndexDescriptors(
+        layoutDir,
+        nested,
+        depth + 1,
+        visited,
+      )),
+    );
+  }
+
+  return leaves;
 }
 
 async function inspectRunnableManifest(layoutDir, descriptor) {
@@ -125,13 +178,9 @@ async function inspectRunnableManifest(layoutDir, descriptor) {
   };
 }
 
-async function findPlatformManifest(layoutDir, index, os, architecture) {
-  if (!Array.isArray(index.manifests)) {
-    fail("OCI index does not contain a manifests array.");
-  }
-
+async function findPlatformManifest(layoutDir, descriptors, os, architecture) {
   const inspected = [];
-  for (const descriptor of index.manifests) {
+  for (const descriptor of descriptors) {
     const candidate = await inspectRunnableManifest(layoutDir, descriptor);
     if (candidate) inspected.push(candidate);
   }
@@ -149,8 +198,8 @@ async function findPlatformManifest(layoutDir, index, os, architecture) {
   return matches[0];
 }
 
-function findAttestationManifest(index, subjectDigest) {
-  const matches = index.manifests.filter((descriptor) => {
+function findAttestationManifest(descriptors, subjectDigest) {
+  const matches = descriptors.filter((descriptor) => {
     if (!descriptor || typeof descriptor !== "object") return false;
     const annotations = descriptor.annotations;
     return (
@@ -285,17 +334,21 @@ export async function extractOciSbom({
     await readJson(resolve(absoluteLayout, "index.json"), "OCI index"),
     "OCI index",
   );
+  if (index.mediaType !== undefined && index.mediaType !== OCI_IMAGE_INDEX) {
+    fail("root OCI index has an unexpected media type.");
+  }
 
+  const descriptors = await flattenIndexDescriptors(absoluteLayout, index);
   const platform = await findPlatformManifest(
     absoluteLayout,
-    index,
+    descriptors,
     os,
     architecture,
   );
   const platformManifestDigest = platform.manifestDigest;
 
   const attestationDescriptor = findAttestationManifest(
-    index,
+    descriptors,
     platformManifestDigest,
   );
   const attestationManifestDigest = requireDigest(
