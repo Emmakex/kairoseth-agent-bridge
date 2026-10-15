@@ -71,6 +71,27 @@ jobs:
       - name: Run installed Docker rollback drill
         run: bash tests/acceptance/docker-installed-rollback.sh
 
+      - name: Build and inspect Linux systemd bundle
+        run: |
+          set -euo pipefail
+          bash -n packaging/linux/install-bundle.sh
+          bash -n packaging/linux/activate-with-rollback.sh
+          bash -n scripts/build-linux-service-bundle.sh
+          VERSION="$(node -p "require('./package.json').version")"
+          RUNTIME_SHA="$(printf 'd%.0s' {1..64})"
+          bash scripts/build-linux-service-bundle.sh \
+            "$VERSION" \
+            "$GITHUB_SHA" \
+            "$RUNTIME_SHA" \
+            .ci-agent-bridge-linux-x64.tar.gz >/dev/null
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/runtime-release.json$'
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/dist/src/cli/agent-bridge-runtime.js$'
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/packaging/linux/agent-bridge.service$'
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/node_modules/'
+
+      - name: Run installed Linux rollback drill
+        run: bash tests/acceptance/linux-service-packaging.sh
+
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
 
