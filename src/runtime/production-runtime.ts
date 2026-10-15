@@ -283,7 +283,7 @@ export class ProductionRuntime {
   private httpTransportOptions(): {
     baseUrl: string;
     allowInsecureHttp: boolean;
-    fetch?: typeof globalThis.fetch | undefined;
+    fetch?: typeof globalThis.fetch;
   } {
     return {
       baseUrl: this.options.platformBaseUrl,
