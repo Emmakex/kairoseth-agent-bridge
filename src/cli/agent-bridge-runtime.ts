@@ -4,10 +4,13 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadRuntimeProcessConfig } from "../runtime/process-config.js";
+import type { RuntimeReadiness } from "../control-channel/session.js";
+import {
+  loadRuntimeProcessConfig,
+  type RuntimeProcessConfig,
+} from "../runtime/process-config.js";
 import { FileRuntimeProcessStatusStore } from "../runtime/process-status.js";
 import { ProductionRuntime } from "../runtime/production-runtime.js";
-import type { RuntimeReadiness } from "../control-channel/session.js";
 
 const STATUS_HEARTBEAT_MS = 15_000;
 
@@ -31,12 +34,12 @@ async function main(): Promise<void> {
 
   const config = loadRuntimeProcessConfig();
   const runtimeVersion = await resolveRuntimeVersion();
-  const runtime = new ProductionRuntime({
-    ...config,
-    runtimeVersion,
-  });
 
   if (command === "enroll") {
+    const runtime = new ProductionRuntime({
+      ...config,
+      runtimeVersion,
+    });
     const token = await readEnrollmentToken(process.env);
     const binding = await runtime.enroll(token);
     process.stdout.write(
@@ -51,25 +54,26 @@ async function main(): Promise<void> {
     return;
   }
 
-  await runRuntime(runtime, config.stateDir, runtimeVersion);
+  await runRuntime(config, runtimeVersion);
 }
 
 async function runRuntime(
-  runtime: ProductionRuntime,
-  stateDir: string,
+  config: RuntimeProcessConfig,
   runtimeVersion: string,
 ): Promise<void> {
   const statusStore = new FileRuntimeProcessStatusStore(
-    join(stateDir, "runtime", "status.json"),
+    join(config.stateDir, "runtime", "status.json"),
   );
   const controller = new AbortController();
   let state: RuntimeReadiness | "starting" = "starting";
-  let statusWrite = Promise.resolve();
+  let statusWrite: Promise<void> = Promise.resolve();
 
   const queueStatusWrite = (): void => {
-    statusWrite = statusWrite.then(async () => {
-      await statusStore.write(state, runtimeVersion);
-    });
+    statusWrite = statusWrite
+      .catch(() => undefined)
+      .then(async () => {
+        await statusStore.write(state, runtimeVersion);
+      });
     statusWrite.catch(() => controller.abort());
   };
 
@@ -82,8 +86,8 @@ async function runRuntime(
   const heartbeat = setInterval(queueStatusWrite, STATUS_HEARTBEAT_MS);
   heartbeat.unref();
 
-  const runtimeWithStatus = new ProductionRuntime({
-    ...loadRuntimeProcessConfig(),
+  const runtime = new ProductionRuntime({
+    ...config,
     runtimeVersion,
     onReadinessChange: (readiness) => {
       state = readiness;
@@ -102,8 +106,8 @@ async function runRuntime(
   });
 
   try {
-    await runtimeWithStatus.run(controller.signal);
-    await statusWrite;
+    await runtime.run(controller.signal);
+    await statusWrite.catch(() => undefined);
     await statusStore.write("stopped", runtimeVersion);
   } catch (error) {
     await statusWrite.catch(() => undefined);
