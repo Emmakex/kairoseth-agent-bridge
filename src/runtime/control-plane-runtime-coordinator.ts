@@ -7,33 +7,45 @@ export interface ControlSessionRunLoop {
   ): Promise<void>;
 }
 
-export interface RuntimeSnapshotRunLoop {
+export interface RuntimeBackgroundRunLoop {
   run(signal?: AbortSignal): Promise<void>;
 }
 
+export type ControlPlaneLoopName =
+  | "session"
+  | "snapshot"
+  | "commands"
+  | "approval_keys"
+  | "audit";
+
+export interface ControlPlaneAuxiliaryLoop {
+  name: Exclude<ControlPlaneLoopName, "session" | "snapshot">;
+  loop: RuntimeBackgroundRunLoop;
+}
+
 export interface ControlPlaneRuntimeCoordinatorOptions {
+  auxiliaryLoops?: readonly ControlPlaneAuxiliaryLoop[] | undefined;
   onLoopStopped?:
-    | ((loop: "session" | "snapshot", reason: "aborted" | "unexpected") => void)
+    | ((loop: ControlPlaneLoopName, reason: "aborted" | "unexpected") => void)
     | undefined;
 }
 
 type LoopResult =
-  | { loop: "session" | "snapshot"; status: "fulfilled" }
-  | { loop: "session" | "snapshot"; status: "rejected"; error: unknown };
+  | { loop: ControlPlaneLoopName; status: "fulfilled" }
+  | { loop: ControlPlaneLoopName; status: "rejected"; error: unknown };
 
 /**
- * Runs the long-lived Platform-facing control loops as one lifecycle.
+ * Runs every long-lived Platform-facing control loop as one lifecycle.
  *
- * Session/heartbeat remains independent from snapshot reporting at the
- * operational level: RuntimeSnapshotScheduler handles report failures and
- * retries without invalidating the active control session. This coordinator
- * only prevents a programming/runtime failure from leaving one of the two
- * long-lived loops orphaned.
+ * Individual schedulers own their recoverable transport retry/backoff policy.
+ * This coordinator handles only process-level invariants: if any loop exits
+ * unexpectedly, every sibling loop is cancelled so the runtime never remains
+ * half-running with command, audit or security synchronization silently gone.
  */
 export class ControlPlaneRuntimeCoordinator {
   constructor(
     private readonly sessionLoop: ControlSessionRunLoop,
-    private readonly snapshotLoop: RuntimeSnapshotRunLoop,
+    private readonly snapshotLoop: RuntimeBackgroundRunLoop,
     private readonly options: ControlPlaneRuntimeCoordinatorOptions = {},
   ) {}
 
@@ -48,23 +60,25 @@ export class ControlPlaneRuntimeCoordinator {
       lifecycle.abort(signal.reason);
     }
 
-    const sessionTask = settleLoop(
-      "session",
-      this.sessionLoop.run(readinessProvider, lifecycle.signal),
-    );
-    const snapshotTask = settleLoop(
-      "snapshot",
-      this.snapshotLoop.run(lifecycle.signal),
-    );
+    const tasks: Promise<LoopResult>[] = [
+      settleLoop(
+        "session",
+        this.sessionLoop.run(readinessProvider, lifecycle.signal),
+      ),
+      settleLoop("snapshot", this.snapshotLoop.run(lifecycle.signal)),
+      ...(this.options.auxiliaryLoops ?? []).map(({ name, loop }) =>
+        settleLoop(name, loop.run(lifecycle.signal)),
+      ),
+    ];
 
-    const first = await Promise.race([sessionTask, snapshotTask]);
+    const first = await Promise.race(tasks);
     const alreadyAborted = lifecycle.signal.aborted;
 
     if (!alreadyAborted) {
       lifecycle.abort();
     }
 
-    const results = await Promise.all([sessionTask, snapshotTask]);
+    const results = await Promise.all(tasks);
     detachExternalAbort();
 
     if (alreadyAborted || signal?.aborted) {
@@ -75,8 +89,9 @@ export class ControlPlaneRuntimeCoordinator {
     const rejected =
       first.status === "rejected"
         ? first
-        : results.find((result): result is Extract<LoopResult, { status: "rejected" }> =>
-            result.status === "rejected" && !isAbortError(result.error),
+        : results.find(
+            (result): result is Extract<LoopResult, { status: "rejected" }> =>
+              result.status === "rejected" && !isAbortError(result.error),
           );
 
     this.options.onLoopStopped?.(first.loop, "unexpected");
@@ -92,7 +107,7 @@ export class ControlPlaneRuntimeCoordinator {
 }
 
 async function settleLoop(
-  loop: "session" | "snapshot",
+  loop: ControlPlaneLoopName,
   task: Promise<void>,
 ): Promise<LoopResult> {
   try {
