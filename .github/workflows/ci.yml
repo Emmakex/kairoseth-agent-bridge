@@ -84,10 +84,12 @@ jobs:
             "$GITHUB_SHA" \
             "$RUNTIME_SHA" \
             .ci-agent-bridge-linux-x64.tar.gz >/dev/null
-          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/runtime-release.json$'
-          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/dist/src/cli/agent-bridge-runtime.js$'
-          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/packaging/linux/agent-bridge.service$'
-          tar -tzf .ci-agent-bridge-linux-x64.tar.gz | grep -q '/node_modules/'
+          BUNDLE_LISTING="${RUNNER_TEMP}/agent-bridge-linux-bundle.list"
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz > "$BUNDLE_LISTING"
+          grep -q '/runtime-release.json$' "$BUNDLE_LISTING"
+          grep -q '/dist/src/cli/agent-bridge-runtime.js$' "$BUNDLE_LISTING"
+          grep -q '/packaging/linux/agent-bridge.service$' "$BUNDLE_LISTING"
+          grep -q '/node_modules/' "$BUNDLE_LISTING"
 
       - name: Run installed Linux rollback drill
         run: bash tests/acceptance/linux-service-packaging.sh
