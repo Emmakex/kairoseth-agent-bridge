@@ -54,7 +54,7 @@ make_bundle() {
   mkdir -p "$stage/dist/src/cli" "$stage/node_modules" "$stage/packaging/linux"
   cp packaging/linux/agent-bridge.service "$stage/packaging/linux/"
   cp packaging/linux/agent-bridge.env.example "$stage/packaging/linux/"
-  printf '{}\n' > "$stage/package.json"
+  printf '{"type":"module"}\n' > "$stage/package.json"
   printf '{}\n' > "$stage/package-lock.json"
   printf 'fixture\n' > "$stage/node_modules/.fixture"
 
