@@ -45,12 +45,17 @@ chmod 0755 \
   "$ROOT/packaging/linux/install-bundle.sh" \
   "$ROOT/packaging/linux/activate-with-rollback.sh"
 
-npm ci \
-  --prefix "$ROOT" \
-  --omit=dev \
-  --no-audit \
-  --no-fund \
-  --ignore-scripts
+# Install exactly the locked production tree from inside the staging root.
+# Running npm with the staging directory as cwd avoids prefix-specific path
+# resolution differences between local runs and GitHub-hosted runners.
+(
+  cd "$ROOT"
+  npm ci \
+    --omit=dev \
+    --no-audit \
+    --no-fund \
+    --ignore-scripts
+)
 npm cache clean --force >/dev/null 2>&1 || true
 
 CHANNEL="stable"
