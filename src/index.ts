@@ -65,6 +65,7 @@ export * from "./protocols/mcp/contracts.js";
 export * from "./protocols/mcp/server.js";
 export * from "./runtime/bridge-runtime.js";
 export * from "./runtime/control-plane-runtime-coordinator.js";
+export * from "./runtime/operator-status.js";
 export * from "./runtime/process-config.js";
 export * from "./runtime/process-status.js";
 export * from "./runtime/production-runtime.js";
