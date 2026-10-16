@@ -43,6 +43,7 @@ test("stable promotion verifies attestations and emits its own promotion attesta
 test("stable promotion refuses to mutate an existing GitHub Release", async () => {
   const content = await workflow();
 
-  assert.match(content, /gh release view.*already exists/);
+  assert.match(content, /gh release view/);
+  assert.match(content, /GitHub Release .* already exists/);
   assert.match(content, /stable releases are not mutated in place/);
 });
