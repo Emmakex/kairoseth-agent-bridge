@@ -59,6 +59,7 @@ export * from "./protocols/a2a/execution-contracts.js";
 export * from "./protocols/a2a/execution.js";
 export * from "./protocols/a2a/file-task-store.js";
 export * from "./protocols/a2a/identity.js";
+export * from "./protocols/a2a/platform-task-store.js";
 export * from "./protocols/a2a/task-store.js";
 export * from "./protocols/mcp/adapter.js";
 export * from "./protocols/mcp/contracts.js";
