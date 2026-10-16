@@ -79,11 +79,21 @@ jobs:
           bash -n scripts/build-linux-service-bundle.sh
           VERSION="$(node -p "require('./package.json').version")"
           RUNTIME_SHA="$(printf 'd%.0s' {1..64})"
+          DEPS_DIR="${RUNNER_TEMP}/agent-bridge-release-node-modules"
+          rm -rf "$DEPS_DIR"
+          mkdir -p "$DEPS_DIR"
+          CONTAINER_ID="$(docker create agent-bridge:release-ci)"
+          trap 'docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CONTAINER_ID:/app/node_modules/." "$DEPS_DIR/"
+          docker rm "$CONTAINER_ID" >/dev/null
+          CONTAINER_ID=""
+          trap - EXIT
           bash scripts/build-linux-service-bundle.sh \
             "$VERSION" \
             "$GITHUB_SHA" \
             "$RUNTIME_SHA" \
-            .ci-agent-bridge-linux-x64.tar.gz >/dev/null
+            .ci-agent-bridge-linux-x64.tar.gz \
+            "$DEPS_DIR" >/dev/null
           BUNDLE_LISTING="${RUNNER_TEMP}/agent-bridge-linux-bundle.list"
           tar -tzf .ci-agent-bridge-linux-x64.tar.gz > "$BUNDLE_LISTING"
           grep -q '/runtime-release.json$' "$BUNDLE_LISTING"
