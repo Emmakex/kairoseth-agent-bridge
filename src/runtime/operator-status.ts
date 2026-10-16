@@ -61,6 +61,8 @@ export function resolveOperatorLocale(
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+    if (argument === undefined) break;
+
     if (argument === "--locale") {
       if (requested !== undefined) {
         throw new Error("Operator locale may only be specified once.");
@@ -93,7 +95,7 @@ export function renderRuntimeOperatorStatus(
   locale: OperatorLocale,
 ): string {
   const copy = COPY[locale];
-  const lines = [copy.title];
+  const lines: string[] = [copy.title];
 
   if (!snapshot.status) {
     lines.push(copy.noStatus);
