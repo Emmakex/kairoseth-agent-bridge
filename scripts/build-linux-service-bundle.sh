@@ -17,6 +17,7 @@ fail() {
 [[ "$RUNTIME_ARTIFACT_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] || fail "Runtime artifact SHA-256 is invalid."
 [[ -d dist/src ]] || fail "dist/src must be built before Linux packaging."
 [[ -f package.json && -f package-lock.json ]] || fail "Locked package manifests are required."
+[[ -d node_modules ]] || fail "node_modules must be installed from the committed lockfile before Linux packaging."
 [[ -f packaging/linux/agent-bridge.service ]] || fail "systemd unit is missing."
 [[ -f docs/LINUX_SERVICE_DEPLOYMENT.md ]] || fail "Linux deployment documentation is missing."
 
@@ -45,18 +46,23 @@ chmod 0755 \
   "$ROOT/packaging/linux/install-bundle.sh" \
   "$ROOT/packaging/linux/activate-with-rollback.sh"
 
-# Install exactly the locked production tree from inside the staging root.
-# Running npm with the staging directory as cwd avoids prefix-specific path
-# resolution differences between local runs and GitHub-hosted runners.
+# CI has already installed the committed lockfile before this packaging step.
+# Reuse that validated tree instead of performing a second network/resolution
+# pass inside a temporary prefix, then remove every development-only package.
+cp -a node_modules "$ROOT/node_modules"
 (
   cd "$ROOT"
-  npm ci \
+  npm prune \
     --omit=dev \
     --no-audit \
     --no-fund \
     --ignore-scripts
 )
-npm cache clean --force >/dev/null 2>&1 || true
+
+[[ -d "$ROOT/node_modules/@modelcontextprotocol/server" ]] || \
+  fail "Production dependency @modelcontextprotocol/server is missing after prune."
+[[ -d "$ROOT/node_modules/mysql2" ]] || \
+  fail "Production dependency mysql2 is missing after prune."
 
 CHANNEL="stable"
 if [[ "$VERSION" == *-* ]]; then
