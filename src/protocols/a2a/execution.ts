@@ -217,26 +217,40 @@ export class A2AToolExecutionAdapter {
       fail("INVALID_REQUEST", locale);
     }
 
+    const claim = await this.taskStore.claimTransition(
+      taskId,
+      scope,
+      "TASK_STATE_AUTH_REQUIRED",
+      record.invocation.actionFingerprint,
+    );
+    if (!claim) {
+      fail("UNSUPPORTED_OPERATION", locale);
+    }
+
+    const claimedRecord = claim.record;
     const invocation: A2ATrustedInvocation = {
       ...context.invocation,
-      correlationId: record.invocation.correlationId,
-      ...(record.invocation.provenance
-        ? { provenance: structuredClone(record.invocation.provenance) }
+      correlationId: claimedRecord.invocation.correlationId,
+      ...(claimedRecord.invocation.provenance
+        ? { provenance: structuredClone(claimedRecord.invocation.provenance) }
         : { provenance: undefined }),
     };
     const updatedTask = await this.invokeToTask(
-      record.task.id,
-      record.task.contextId ?? this.generateId(locale),
+      claimedRecord.task.id,
+      claimedRecord.task.contextId ?? this.generateId(locale),
       request.message.messageId,
-      record.invocation,
+      claimedRecord.invocation,
       invocation,
       locale,
     );
-    await this.taskStore.save({
+    const completed = await this.taskStore.completeTransition(claim, {
       task: updatedTask,
       scope,
-      invocation: record.invocation,
+      invocation: claimedRecord.invocation,
     });
+    if (!completed) {
+      throw new Error("A2A transition completion lost its atomic claim.");
+    }
     return updatedTask;
   }
 
