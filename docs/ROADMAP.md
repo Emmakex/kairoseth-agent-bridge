@@ -290,7 +290,7 @@ Exit condition achieved: MCP, A2A and Kairoseth-native callers share one executi
 
 ## Phase 6 — Production hardening
 
-Status: **in progress — stable promotion, clustered A2A storage, Windows packaging and operator surfaces remain**
+Status: **in progress — first stable execution/registry, clustered A2A storage, Windows packaging and Platform observability remain**
 
 - [x] Encrypted temporary local queue
 - [x] General replay/idempotency hardening for clustered/shared deployments
@@ -309,15 +309,18 @@ Status: **in progress — stable promotion, clustered A2A storage, Windows packa
 - [x] Executable failure drills for snapshot outage, fatal coordinator failure, WRITE redelivery and circuit isolation
 - [x] Installation/update and anti-downgrade strategy for local bridge
 - [x] Exact trusted rollback policy at the release-descriptor level
-- [ ] Stable tagged/signed release promotion policy
+- [x] Signed stable GitHub Release promotion policy without rebuild
+- [ ] First stable promotion execution/evidence
+- [ ] OCI registry promotion without rebuild/digest change
 - [x] Installed rollback drill against a packaged runtime
 - [x] Durable single-node A2A task storage
 - [ ] Clustered/shared A2A task storage with atomic transition semantics
 - [x] Docker packaging
 - [x] Linux service packaging
 - [ ] Windows service packaging
+- [x] ES/EN local runtime operator status CLI
 - [ ] Observability dashboards in Kairoseth Platform
-- [ ] ES/EN installer/operator-facing surfaces across remaining packaging and Platform UI
+- [ ] ES/EN installer/operator-facing surfaces across remaining Windows packaging and Platform UI
 
 Hardening completed so far:
 
@@ -340,9 +343,11 @@ Hardening completed so far:
 - runtime artifact verification streams SHA-256 and fails closed before activation;
 - Docker and Linux/systemd packages have executable installed rollback drills that restore the exact previous runtime while retaining durable state;
 - Linux release bundles are generated from the verified release-image dependency tree and are attested in Release Integrity;
-- `FileA2ATaskStore` persists A2A approval/task state across single-node restarts with exact actor/tenant/installation isolation, atomic replacement and fail-closed corruption/schema checks; clustered/shared task storage remains intentionally separate.
+- `FileA2ATaskStore` persists A2A approval/task state across single-node restarts with exact actor/tenant/installation isolation, atomic replacement and fail-closed corruption/schema checks; clustered/shared task storage remains intentionally separate;
+- stable GitHub Release promotion requires a GitHub-verified signed annotated tag, an exact successful `main` Release Integrity artifact, checksum/provenance re-verification and an attested promotion record without rebuilding distribution bytes;
+- local operators can inspect the durable runtime state in ES/EN through `agent-bridge-runtime status` without exposing secrets or opening an additional listener; automation continues to use the separate exit-code healthcheck.
 
-See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md`, `docs/INSTALLATION_UPDATE_STRATEGY.md`, `docs/LINUX_SERVICE_DEPLOYMENT.md` and `docs/A2A_TASK_STORAGE.md`.
+See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md`, `docs/INSTALLATION_UPDATE_STRATEGY.md`, `docs/LINUX_SERVICE_DEPLOYMENT.md`, `docs/A2A_TASK_STORAGE.md` and `docs/OPERATOR_RUNTIME_STATUS.md`.
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage and operator visibility.
 
