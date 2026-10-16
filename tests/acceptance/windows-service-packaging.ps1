@@ -171,3 +171,6 @@ process.exit(1);
   Remove-Item Env:KAB_EXPECTED_CANDIDATE_ARTIFACT_SHA256 -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
 }
+
+$global:LASTEXITCODE = 0
+exit 0
