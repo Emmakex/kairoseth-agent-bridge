@@ -1,5 +1,13 @@
 # Platform A2A task storage / Almacenamiento A2A compartido en Platform
 
+Status: **implemented and accepted / implementado y aceptado — 2026-10-16**
+
+Implementation evidence / Evidencia de implementación:
+
+- Kairoseth Platform: `Emmakex/Kairoseth-Command-Center` PR #50.
+- Merge commit: `4b2bfa241b8215658081fb11010190c332dfd62f`.
+- Acceptance evidence: `docs/PLATFORM_A2A_TASK_STORAGE_ACCEPTANCE.md`.
+
 ## ES — Backend autoritativo para despliegues clustered
 
 `PlatformA2ATaskStore` es el cliente de almacenamiento A2A compartido para runtimes de Kairoseth Agent Bridge que pueden ejecutarse en más de un nodo.
@@ -41,7 +49,7 @@ Request:
 }
 ```
 
-Platform debe crear o actualizar la tarea dentro del scope autenticado. Debe rechazar colisiones de `taskId` entre scopes y escrituras ordinarias mientras exista un claim activo.
+Platform crea o actualiza la tarea dentro del scope autenticado. Rechaza colisiones de `taskId` entre scopes y escrituras ordinarias mientras exista un claim activo.
 
 #### Get
 
@@ -71,7 +79,7 @@ o:
 { "record": {} }
 ```
 
-El record devuelto debe coincidir exactamente con `taskId` y scope solicitados.
+El record devuelto debe coincidir exactamente con `taskId` y scope solicitados. Además, Platform liga `scope.tenantId` al `activeWorkspaceId` de la sesión autenticada, por lo que el cliente no puede seleccionar un tenant arbitrario.
 
 #### Claim
 
@@ -105,7 +113,7 @@ Response ganador:
 }
 ```
 
-La operación en Platform debe ser atómica. Solo puede ganar si, en una única transacción/CAS autoritativa:
+La operación en Platform es atómica mediante una única operación autoritativa de MongoDB. Solo puede ganar si simultáneamente:
 
 1. existe el `taskId` en el scope exacto;
 2. no hay claim activo;
@@ -133,13 +141,13 @@ Response:
 { "completed": true }
 ```
 
-`completed=true` solo es válido si Platform sustituye el record mediante comparación atómica contra el `claimId` persistido y el mismo scope. Un claim distinto, inexistente o ya consumido devuelve `completed=false`.
+`completed=true` solo es válido si Platform sustituye el record mediante comparación atómica contra el `claimId` persistido, el mismo scope y la invocación ligada al claim. Un claim distinto, inexistente o ya consumido devuelve `completed=false`.
 
-### Responsabilidad de Platform
+### Implementación Platform
 
-La implementación del endpoint en Kairoseth Platform debe proporcionar la atomicidad real entre nodos. Puede usar el datastore autoritativo existente de Platform; la elección concreta de tecnología permanece fuera del runtime Agent Bridge.
+Kairoseth Platform implementa estos endpoints sobre su datastore MongoDB autoritativo. La colección `agent_bridge_a2a_tasks` mantiene un `taskId` único y el claim se resuelve mediante una única operación atómica `findOneAndUpdate`, persistiendo `TASK_STATE_WORKING` antes de devolver el ganador.
 
-No se considera completado el ítem clustered/shared únicamente por disponer del cliente HTTP: también debe existir la implementación Platform y una prueba de aceptación con al menos dos instancias lógicas compitiendo por el mismo claim.
+La implementación quedó mergeada en `Emmakex/Kairoseth-Command-Center` PR #50 (`4b2bfa241b8215658081fb11010190c332dfd62f`). La aceptación real con dos clientes concurrentes sobre el mismo Platform/MongoDB produjo exactamente un ganador y bloqueó el replay de completion, por lo que el ítem clustered/shared de Fase 6 se considera completado.
 
 ---
 
@@ -175,14 +183,16 @@ All endpoints require `Authorization: Bearer <bridge-session-token>`.
 
 The request and response bodies are the same versioned contracts shown in the ES section above.
 
-For `claim`, Platform must atomically verify exact task ID, actor/tenant/installation scope, expected task state, exact action fingerprint and absence of an active claim, then persist the claim and `TASK_STATE_WORKING` before returning the winner.
+For `get`, Platform also binds `scope.tenantId` to the authenticated session `activeWorkspaceId`, so the client cannot select an arbitrary tenant.
 
-For `complete`, Platform must atomically compare the persisted claim ID and exact scope before replacing the task with the terminal record. A missing, stale or different claim returns `completed=false`.
+For `claim`, Platform atomically verifies exact task ID, actor/tenant/installation scope, expected task state, exact action fingerprint and absence of an active claim, then persists the claim and `TASK_STATE_WORKING` before returning the winner.
+
+For `complete`, Platform atomically compares the persisted claim ID, exact scope and claim-bound invocation before replacing the task with the terminal record. A missing, stale or different claim returns `completed=false`.
 
 Claims deliberately have no automatic expiry. An uncertain crash remains fail-closed and requires explicit reconciliation rather than risking duplicate WRITE/CRITICAL execution.
 
-### Platform responsibility
+### Platform implementation
 
-The Kairoseth Platform endpoint implementation provides the real cross-node atomicity and should reuse Platform's existing authoritative datastore. The concrete datastore technology is not imposed on the Agent Bridge runtime.
+Kairoseth Platform implements these endpoints on its authoritative MongoDB datastore. The `agent_bridge_a2a_tasks` collection keeps `taskId` globally unique, while claim resolution uses one atomic `findOneAndUpdate` that persists `TASK_STATE_WORKING` before the winner is returned.
 
-The clustered/shared Phase 6 item is only complete after the Platform-side implementation exists and an acceptance test proves at least two logical runtime instances competing for the same claim produce exactly one winner.
+The implementation was merged in `Emmakex/Kairoseth-Command-Center` PR #50 (`4b2bfa241b8215658081fb11010190c332dfd62f`). Real acceptance with two concurrent clients sharing the same Platform/MongoDB produced exactly one winner and blocked completion replay, so the Phase 6 clustered/shared item is complete.
