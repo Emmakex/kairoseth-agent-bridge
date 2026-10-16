@@ -1,0 +1,251 @@
+name: Stable Release Promotion
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: stable-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote verified stable release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and verify signed annotated tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          REF_TYPE="$(jq -r '.object.type' <<<"$REF_JSON")"
+          TAG_OBJECT_SHA="$(jq -r '.object.sha' <<<"$REF_JSON")"
+
+          if [[ "$REF_TYPE" != "tag" ]]; then
+            echo "Stable promotion requires an annotated tag; lightweight tags are rejected." >&2
+            exit 1
+          fi
+
+          TAG_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT_SHA}")"
+          if [[ "$(jq -r '.verification.verified' <<<"$TAG_JSON")" != "true" ]]; then
+            echo "Stable promotion requires a tag signature verified by GitHub." >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.object.type' <<<"$TAG_JSON")" != "commit" ]]; then
+            echo "Stable promotion tag must point directly to a commit." >&2
+            exit 1
+          fi
+
+          SOURCE_SHA="$(jq -r '.object.sha' <<<"$TAG_JSON")"
+          git fetch origin main --force
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/main; then
+            echo "Stable promotion source commit must already belong to main." >&2
+            exit 1
+          fi
+
+          git checkout --detach "$SOURCE_SHA"
+          echo "STABLE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "STABLE_SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build policy validator
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Validate stable tag and package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          node --input-type=module - "$STABLE_TAG" "$VERSION" <<'NODE'
+          import { validateStableReleaseIdentity } from "./dist/src/update/stable-release-policy.js";
+          const [tag, version] = process.argv.slice(2);
+          validateStableReleaseIdentity(tag, version);
+          NODE
+          echo "STABLE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Locate successful Release Integrity source run
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/release-integrity.yml/runs?head_sha=${STABLE_SOURCE_SHA}&branch=main&event=push&status=success&per_page=100" \
+              --jq '.workflow_runs | sort_by(.created_at) | reverse | .[0].id // empty'
+          )"
+          if [[ -z "$RUN_ID" ]]; then
+            echo "No successful main Release Integrity run exists for ${STABLE_SOURCE_SHA}." >&2
+            exit 1
+          fi
+
+          EXPECTED_ARTIFACT="agent-bridge-${STABLE_VERSION}-${STABLE_SOURCE_SHA:0:12}"
+          ARTIFACT_COUNT="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+              --jq "[.artifacts[] | select(.name == \"${EXPECTED_ARTIFACT}\" and .expired == false)] | length"
+          )"
+          if [[ "$ARTIFACT_COUNT" != "1" ]]; then
+            echo "Expected exactly one non-expired release artifact named ${EXPECTED_ARTIFACT}." >&2
+            exit 1
+          fi
+
+          echo "SOURCE_RELEASE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          echo "SOURCE_RELEASE_ARTIFACT=$EXPECTED_ARTIFACT" >> "$GITHUB_ENV"
+
+      - name: Download exact verified release bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stable-source
+          mkdir -p stable-source
+          gh run download "$SOURCE_RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$SOURCE_RELEASE_ARTIFACT" \
+            --dir stable-source
+
+          MANIFEST="$(find stable-source -type f -name release-manifest.json -print -quit)"
+          if [[ -z "$MANIFEST" ]]; then
+            echo "Downloaded release artifact has no release-manifest.json." >&2
+            exit 1
+          fi
+          ROOT="$(dirname "$MANIFEST")"
+          echo "STABLE_RELEASE_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Verify manifest, checksums and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$STABLE_RELEASE_ROOT"
+          MANIFEST="$ROOT/release-manifest.json"
+          node --input-type=module - "$MANIFEST" "$STABLE_VERSION" "$STABLE_SOURCE_SHA" <<'NODE'
+          import fs from "node:fs";
+          const [manifestPath, version, sourceCommit] = process.argv.slice(2);
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+          if (manifest.schemaVersion !== 1) throw new Error("Unsupported release manifest schema.");
+          if (manifest.technicalProductId !== "agent-bridge") throw new Error("Unexpected technical product ID.");
+          if (manifest.packageVersion !== version) throw new Error("Release manifest version does not match stable tag.");
+          if (manifest.sourceCommit !== sourceCommit) throw new Error("Release manifest source commit does not match signed tag target.");
+          if (!manifest.artifact?.file || !manifest.linuxService?.file || !manifest.ociImage?.file) {
+            throw new Error("Stable promotion requires runtime, Linux and OCI release surfaces.");
+          }
+          NODE
+          (
+            cd "$ROOT"
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Verify source artifact attestations
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$STABLE_RELEASE_ROOT"
+          MANIFEST="$ROOT/release-manifest.json"
+          RUNTIME_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).artifact.file' "$MANIFEST")"
+          LINUX_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).linuxService.file' "$MANIFEST")"
+          OCI_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).ociImage.file' "$MANIFEST")"
+
+          for FILE in "$RUNTIME_FILE" "$LINUX_FILE" "$OCI_FILE"; do
+            test -f "$ROOT/$FILE"
+            gh attestation verify "$ROOT/$FILE" --repo "$GITHUB_REPOSITORY"
+          done
+
+      - name: Create stable promotion manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$STABLE_RELEASE_ROOT"
+          RELEASE_MANIFEST_SHA256="$(sha256sum "$ROOT/release-manifest.json" | awk '{print $1}')"
+          STABLE_TAG="$STABLE_TAG" \
+          STABLE_VERSION="$STABLE_VERSION" \
+          STABLE_SOURCE_SHA="$STABLE_SOURCE_SHA" \
+          SOURCE_RELEASE_RUN_ID="$SOURCE_RELEASE_RUN_ID" \
+          SOURCE_RELEASE_ARTIFACT="$SOURCE_RELEASE_ARTIFACT" \
+          RELEASE_MANIFEST_SHA256="$RELEASE_MANIFEST_SHA256" \
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const promotion = {
+            schemaVersion: "kab.stable-promotion.v1",
+            technicalProductId: "agent-bridge",
+            channel: "stable",
+            tag: process.env.STABLE_TAG,
+            packageVersion: process.env.STABLE_VERSION,
+            sourceCommit: process.env.STABLE_SOURCE_SHA,
+            sourceReleaseIntegrityRunId: Number(process.env.SOURCE_RELEASE_RUN_ID),
+            sourceArtifact: process.env.SOURCE_RELEASE_ARTIFACT,
+            releaseManifestSha256: process.env.RELEASE_MANIFEST_SHA256,
+            promotionWorkflow: process.env.GITHUB_WORKFLOW,
+            promotionRunId: Number(process.env.GITHUB_RUN_ID),
+          };
+          fs.writeFileSync("stable-promotion.json", JSON.stringify(promotion, null, 2) + "\n");
+          NODE
+
+      - name: Attest stable promotion manifest
+        uses: actions/attest@v4
+        with:
+          subject-path: stable-promotion.json
+
+      - name: Publish immutable GitHub Release surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release ${STABLE_TAG} already exists; stable releases are not mutated in place." >&2
+            exit 1
+          fi
+
+          ROOT="$STABLE_RELEASE_ROOT"
+          MANIFEST="$ROOT/release-manifest.json"
+          RUNTIME_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).artifact.file' "$MANIFEST")"
+          LINUX_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).linuxService.file' "$MANIFEST")"
+          OCI_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).ociImage.file' "$MANIFEST")"
+
+          cat > stable-release-notes.md <<EOF
+          ## ES
+          Release estable de Agent Bridge ${STABLE_VERSION}, promovida sin recompilar desde Release Integrity run ${SOURCE_RELEASE_RUN_ID}. Los artefactos conservan sus SHA-256 y attestations OIDC/Sigstore verificadas.
+
+          ## EN
+          Stable Agent Bridge ${STABLE_VERSION} release, promoted without rebuilding from Release Integrity run ${SOURCE_RELEASE_RUN_ID}. Artifacts retain their verified SHA-256 values and OIDC/Sigstore attestations.
+          EOF
+
+          ASSETS=(
+            "$ROOT/$RUNTIME_FILE"
+            "$ROOT/$LINUX_FILE"
+            "$ROOT/$OCI_FILE"
+            "$ROOT/SHA256SUMS"
+            "$ROOT/release-manifest.json"
+            "$ROOT/oci-image.json"
+            "$ROOT/oci-sbom.spdx.json"
+            "$ROOT/sbom.cdx.json"
+            "stable-promotion.json"
+          )
+          for ASSET in "${ASSETS[@]}"; do
+            test -f "$ASSET"
+          done
+
+          gh release create "$STABLE_TAG" "${ASSETS[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Agent Bridge ${STABLE_VERSION}" \
+            --notes-file stable-release-notes.md
