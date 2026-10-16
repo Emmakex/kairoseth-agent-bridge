@@ -70,21 +70,18 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Build policy validator
-        run: |
-          npm ci --no-audit --no-fund
-          npm run build
+      - name: Install locked tooling dependencies
+        run: npm ci --no-audit --no-fund
 
       - name: Validate stable tag and package version
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          node --input-type=module - "$STABLE_TAG" "$VERSION" <<'NODE'
-          import { validateStableReleaseIdentity } from "./dist/src/update/stable-release-policy.js";
-          const [tag, version] = process.argv.slice(2);
-          validateStableReleaseIdentity(tag, version);
-          NODE
+          npx --no-install tsx --eval '
+            import { validateStableReleaseIdentity } from "./src/update/stable-release-policy.ts";
+            validateStableReleaseIdentity(process.argv[1], process.argv[2]);
+          ' "$STABLE_TAG" "$VERSION"
           echo "STABLE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Locate successful Release Integrity source run
@@ -156,7 +153,7 @@ jobs:
             sha256sum --check SHA256SUMS
           )
 
-      - name: Verify source artifact attestations
+      - name: Verify exact Release Integrity provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -165,10 +162,15 @@ jobs:
           RUNTIME_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).artifact.file' "$MANIFEST")"
           LINUX_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).linuxService.file' "$MANIFEST")"
           OCI_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).ociImage.file' "$MANIFEST")"
+          SIGNER_WORKFLOW="$GITHUB_REPOSITORY/.github/workflows/release-integrity.yml"
 
           for FILE in "$RUNTIME_FILE" "$LINUX_FILE" "$OCI_FILE"; do
             test -f "$ROOT/$FILE"
-            gh attestation verify "$ROOT/$FILE" --repo "$GITHUB_REPOSITORY"
+            gh attestation verify "$ROOT/$FILE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$SIGNER_WORKFLOW" \
+              --source-digest "$STABLE_SOURCE_SHA" \
+              --source-ref refs/heads/main
           done
 
       - name: Create stable promotion manifest
