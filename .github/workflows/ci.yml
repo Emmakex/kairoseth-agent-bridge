@@ -106,7 +106,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       - name: Upload SBOM
-        if: always()
+        if: ${{ always() && hashFiles('sbom.cdx.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: agent-bridge-sbom-${{ github.sha }}
