@@ -9,6 +9,10 @@ import {
   loadRuntimeProcessConfig,
   type RuntimeProcessConfig,
 } from "../runtime/process-config.js";
+import {
+  renderRuntimeOperatorStatus,
+  resolveOperatorLocale,
+} from "../runtime/operator-status.js";
 import { FileRuntimeProcessStatusStore } from "../runtime/process-status.js";
 import { ProductionRuntime } from "../runtime/production-runtime.js";
 
@@ -17,19 +21,32 @@ const STATUS_HEARTBEAT_MS = 15_000;
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "run";
 
-  if (command === "healthcheck") {
+  if (command === "healthcheck" || command === "status") {
     const stateDir = resolve(
       process.env.KAB_STATE_DIR?.trim() || "/var/lib/agent-bridge",
     );
     const store = new FileRuntimeProcessStatusStore(
       join(stateDir, "runtime", "status.json"),
     );
-    process.exitCode = (await store.healthy()) ? 0 : 1;
+
+    if (command === "healthcheck") {
+      process.exitCode = (await store.healthy()) ? 0 : 1;
+      return;
+    }
+
+    const locale = resolveOperatorLocale(process.argv.slice(3), process.env);
+    const status = await store.read();
+    const healthy = status ? await store.healthy() : false;
+    process.stdout.write(
+      renderRuntimeOperatorStatus({ status, healthy }, locale),
+    );
     return;
   }
 
   if (command !== "run" && command !== "enroll") {
-    throw new Error("Usage: agent-bridge-runtime [run|enroll|healthcheck]");
+    throw new Error(
+      "Usage: agent-bridge-runtime [run|enroll|healthcheck|status [--locale es|en]]",
+    );
   }
 
   const config = loadRuntimeProcessConfig();
