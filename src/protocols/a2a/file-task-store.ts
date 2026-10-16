@@ -32,11 +32,6 @@ interface SerializedA2ATaskStore {
   records: SerializedA2ATaskEntry[];
 }
 
-interface LegacySerializedA2ATaskStore {
-  schemaVersion: typeof LEGACY_STORE_SCHEMA_VERSION;
-  records: A2AStoredTask[];
-}
-
 export interface FileA2ATaskStoreOptions {
   filePath: string;
   maxRecords?: number | undefined;
@@ -125,6 +120,7 @@ export class FileA2ATaskStore implements A2ATaskStore {
     taskId: string,
     scope: A2ATaskScope,
     expectedState: A2ATaskState,
+    expectedActionFingerprint: string,
     claimId: string = randomUUID(),
   ): Promise<A2ATaskTransitionClaim | null> {
     validateClaimId(claimId);
@@ -139,7 +135,8 @@ export class FileA2ATaskStore implements A2ATaskStore {
         !entry ||
         !sameScope(entry.record.scope, scope) ||
         entry.claimId ||
-        entry.record.task.status.state !== expectedState
+        entry.record.task.status.state !== expectedState ||
+        entry.record.invocation.actionFingerprint !== expectedActionFingerprint
       ) {
         return;
       }
