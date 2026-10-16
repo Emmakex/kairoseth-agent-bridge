@@ -1,0 +1,180 @@
+name: Windows Service Packaging
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "README.md"
+      - "packaging/windows/**"
+      - "scripts/build-windows-service-bundle.sh"
+      - "tests/acceptance/windows-service-packaging.ps1"
+      - "docs/WINDOWS_SERVICE_DEPLOYMENT.md"
+      - ".github/workflows/windows-service.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "README.md"
+      - "packaging/windows/**"
+      - "scripts/build-windows-service-bundle.sh"
+      - "tests/acceptance/windows-service-packaging.ps1"
+      - "docs/WINDOWS_SERVICE_DEPLOYMENT.md"
+      - ".github/workflows/windows-service.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: windows-service-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build deterministic Windows x64 bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+
+      - name: Prepare production dependency tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_ROOT="${RUNNER_TEMP}/agent-bridge-windows-prod"
+          rm -rf "$PROD_ROOT"
+          mkdir -p "$PROD_ROOT"
+          cp package.json package-lock.json "$PROD_ROOT/"
+          npm ci --prefix "$PROD_ROOT" --omit=dev --ignore-scripts --no-audit --no-fund
+          npm ls --prefix "$PROD_ROOT" --omit=dev --all >/dev/null
+          if find "$PROD_ROOT/node_modules" -type f -name '*.node' -print -quit | grep -q .; then
+            echo "Native Node addons require a Windows-specific dependency build." >&2
+            exit 1
+          fi
+          echo "KAB_WINDOWS_PROD_NODE_MODULES=$PROD_ROOT/node_modules" >> "$GITHUB_ENV"
+
+      - name: Fetch pinned WinSW x64 wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          WINSW_VERSION="2.12.0"
+          WINSW_SHA256="05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da"
+          WINSW_EXE="${RUNNER_TEMP}/WinSW-x64.exe"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$WINSW_EXE" \
+            "https://github.com/winsw/winsw/releases/download/v${WINSW_VERSION}/WinSW-x64.exe"
+          printf '%s  %s\n' "$WINSW_SHA256" "$WINSW_EXE" | sha256sum --check --status
+          echo "KAB_WINSW_EXE=$WINSW_EXE" >> "$GITHUB_ENV"
+          echo "KAB_WINSW_VERSION=$WINSW_VERSION" >> "$GITHUB_ENV"
+          echo "KAB_WINSW_SHA256=$WINSW_SHA256" >> "$GITHUB_ENV"
+
+      - name: Build Windows bundle twice and prove reproducibility
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+          NAME="agent-bridge-${VERSION}-${SHORT_SHA}-windows-x64"
+          ARCHIVE="release/${NAME}.zip"
+          SECOND="${RUNNER_TEMP}/${NAME}-second.zip"
+          RUNTIME_SHA="$(sha256sum <(printf '%s\n' "agent-bridge:${VERSION}:${GITHUB_SHA}") | awk '{print $1}')"
+          mkdir -p release
+
+          bash scripts/build-windows-service-bundle.sh \
+            "$VERSION" "$GITHUB_SHA" "$RUNTIME_SHA" "$ARCHIVE" \
+            "$KAB_WINDOWS_PROD_NODE_MODULES" "$KAB_WINSW_EXE"
+          bash scripts/build-windows-service-bundle.sh \
+            "$VERSION" "$GITHUB_SHA" "$RUNTIME_SHA" "$SECOND" \
+            "$KAB_WINDOWS_PROD_NODE_MODULES" "$KAB_WINSW_EXE"
+
+          FIRST_SHA="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          SECOND_SHA="$(sha256sum "$SECOND" | awk '{print $1}')"
+          test "$FIRST_SHA" = "$SECOND_SHA"
+
+          unzip -l "$ARCHIVE" > "${RUNNER_TEMP}/windows-bundle.list"
+          grep -q 'runtime-release.json' "${RUNNER_TEMP}/windows-bundle.list"
+          grep -q 'dist/src/cli/agent-bridge-runtime.js' "${RUNNER_TEMP}/windows-bundle.list"
+          grep -q 'packaging/windows/agent-bridge-service.exe' "${RUNNER_TEMP}/windows-bundle.list"
+          grep -q 'packaging/windows/WINSW-LICENSE.txt' "${RUNNER_TEMP}/windows-bundle.list"
+          grep -q 'node_modules/' "${RUNNER_TEMP}/windows-bundle.list"
+
+          cat > release/windows-service-evidence.json <<JSON
+          {
+            "schemaVersion": "kab.windows-service-evidence.v1",
+            "technicalProductId": "agent-bridge",
+            "packageVersion": "$VERSION",
+            "sourceCommit": "$GITHUB_SHA",
+            "platform": "windows/x64/service",
+            "file": "${NAME}.zip",
+            "sha256": "$FIRST_SHA",
+            "runtimeArtifactSha256": "$RUNTIME_SHA",
+            "serviceWrapper": {
+              "name": "WinSW",
+              "version": "$KAB_WINSW_VERSION",
+              "sha256": "$KAB_WINSW_SHA256"
+            }
+          }
+          JSON
+
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$FIRST_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Windows service bundle provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Upload Windows service evidence
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            release/windows-service-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+  installed-rollback:
+    name: Run installed Windows rollback drill
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Run Windows packaging acceptance
+        shell: pwsh
+        run: ./tests/acceptance/windows-service-packaging.ps1
