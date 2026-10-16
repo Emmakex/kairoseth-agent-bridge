@@ -20,7 +20,7 @@ test("stable promotion requires a GitHub-verified annotated tag on main", async 
   assert.match(content, /merge-base --is-ancestor.*origin\/main/);
 });
 
-test("stable promotion reuses a successful Release Integrity artifact", async () => {
+test("stable promotion reuses a successful Release Integrity artifact without rebuilding distribution bytes", async () => {
   const content = await workflow();
 
   assert.match(content, /release-integrity\.yml\/runs/);
@@ -28,12 +28,19 @@ test("stable promotion reuses a successful Release Integrity artifact", async ()
   assert.match(content, /status=success/);
   assert.match(content, /gh run download/);
   assert.match(content, /sha256sum --check SHA256SUMS/);
+  assert.doesNotMatch(content, /docker build/);
+  assert.doesNotMatch(content, /npm run build/);
+  assert.doesNotMatch(content, /build-linux-service-bundle/);
 });
 
-test("stable promotion verifies attestations and emits its own promotion attestation", async () => {
+test("stable promotion verifies exact Release Integrity provenance and emits its own promotion attestation", async () => {
   const content = await workflow();
 
   assert.match(content, /gh attestation verify/);
+  assert.match(content, /--signer-workflow/);
+  assert.match(content, /release-integrity\.yml/);
+  assert.match(content, /--source-digest.*STABLE_SOURCE_SHA/);
+  assert.match(content, /--source-ref refs\/heads\/main/);
   assert.match(content, /schemaVersion: "kab\.stable-promotion\.v1"/);
   assert.match(content, /uses: actions\/attest@v4/);
   assert.match(content, /gh release create/);
