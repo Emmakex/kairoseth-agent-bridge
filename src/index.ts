@@ -81,3 +81,4 @@ export * from "./update/artifact-integrity.js";
 export * from "./update/docker-activation-plan.js";
 export * from "./update/linux-service-activation-plan.js";
 export * from "./update/release-update-policy.js";
+export * from "./update/stable-release-policy.js";
