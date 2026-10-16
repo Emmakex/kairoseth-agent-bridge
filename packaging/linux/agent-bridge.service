@@ -1,0 +1,42 @@
+[Unit]
+Description=Kairoseth Agent Bridge Runtime
+Documentation=https://github.com/Emmakex/kairoseth-agent-bridge
+Wants=network-online.target
+After=network-online.target
+ConditionPathIsSymbolicLink=/opt/agent-bridge/current
+
+[Service]
+Type=simple
+User=agent-bridge
+Group=agent-bridge
+EnvironmentFile=/etc/agent-bridge/agent-bridge.env
+Environment=KAB_STATE_DIR=/var/lib/agent-bridge
+WorkingDirectory=/opt/agent-bridge/current
+ExecStart=/usr/bin/node /opt/agent-bridge/current/dist/src/cli/agent-bridge-runtime.js run
+ExecStartPre=/usr/bin/test -r /opt/agent-bridge/current/runtime-release.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+StateDirectory=agent-bridge
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/agent-bridge
+
+[Install]
+WantedBy=multi-user.target

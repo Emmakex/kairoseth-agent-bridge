@@ -13,6 +13,8 @@ on:
       - "README.md"
       - "Dockerfile"
       - "packaging/docker/**"
+      - "packaging/linux/**"
+      - "docs/LINUX_SERVICE_DEPLOYMENT.md"
       - ".github/workflows/release-integrity.yml"
   pull_request:
     paths:
@@ -24,6 +26,8 @@ on:
       - "README.md"
       - "Dockerfile"
       - "packaging/docker/**"
+      - "packaging/linux/**"
+      - "docs/LINUX_SERVICE_DEPLOYMENT.md"
       - ".github/workflows/release-integrity.yml"
   workflow_dispatch:
 
@@ -41,7 +45,7 @@ jobs:
   release-artifact:
     name: Build and attest release artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -129,9 +133,68 @@ jobs:
           cp sbom.cdx.json release/sbom.cdx.json
 
           echo "archive=${ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "artifact-sha256=${ARTIFACT_SHA256}" >> "$GITHUB_OUTPUT"
           echo "context=${CONTEXT}" >> "$GITHUB_OUTPUT"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build deterministic Linux systemd bundle
+        id: linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          NAME="${{ steps.package.outputs.name }}"
+          RUNTIME_ARTIFACT_SHA256="${{ steps.package.outputs.artifact-sha256 }}"
+          LINUX_ARCHIVE="release/${NAME}-linux-x64.tar.gz"
+          LINUX_CONTEXT="${RUNNER_TEMP}/agent-bridge-linux-bundle-context"
+          rm -rf "$LINUX_CONTEXT"
+          mkdir -p "$LINUX_CONTEXT/dist" "$LINUX_CONTEXT/packaging" "$LINUX_CONTEXT/docs" "$LINUX_CONTEXT/scripts"
+          cp package.json package-lock.json README.md "$LINUX_CONTEXT/"
+          cp -R dist/src "$LINUX_CONTEXT/dist/src"
+          cp -R packaging/linux "$LINUX_CONTEXT/packaging/linux"
+          cp docs/LINUX_SERVICE_DEPLOYMENT.md "$LINUX_CONTEXT/docs/"
+          cp scripts/build-linux-service-bundle.sh "$LINUX_CONTEXT/scripts/"
+          docker build \
+            --file packaging/linux/Dockerfile.bundle \
+            --build-arg "KAB_VERSION=${VERSION}" \
+            --build-arg "KAB_REVISION=${GITHUB_SHA}" \
+            --build-arg "KAB_RUNTIME_ARTIFACT_SHA256=${RUNTIME_ARTIFACT_SHA256}" \
+            --tag agent-bridge:linux-bundle-release \
+            "$LINUX_CONTEXT"
+          CONTAINER_ID="$(docker create agent-bridge:linux-bundle-release)"
+          trap 'docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CONTAINER_ID:/out/agent-bridge-linux-x64.tar.gz" "$LINUX_ARCHIVE"
+          docker rm "$CONTAINER_ID" >/dev/null
+          CONTAINER_ID=""
+          trap - EXIT
+
+          LINUX_SHA256="$(sha256sum "$LINUX_ARCHIVE" | awk '{print $1}')"
+          LINUX_FILE="$(basename "$LINUX_ARCHIVE")"
+          printf '%s  %s\n' "$LINUX_SHA256" "$LINUX_FILE" >> release/SHA256SUMS
+
+          LINUX_FILE="$LINUX_FILE" \
+          LINUX_SHA256="$LINUX_SHA256" \
+          RUNTIME_ARTIFACT_SHA256="$RUNTIME_ARTIFACT_SHA256" \
+          node -e '
+            const fs = require("node:fs");
+            const path = "release/release-manifest.json";
+            const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
+            manifest.linuxService = {
+              format: "tar+gzip",
+              file: process.env.LINUX_FILE,
+              sha256: process.env.LINUX_SHA256,
+              platform: "linux/x64/systemd",
+              runtimeArtifactSha256: process.env.RUNTIME_ARTIFACT_SHA256,
+              releaseDirectory: `sha256-${process.env.RUNTIME_ARTIFACT_SHA256}`,
+              applicationBuildSource: "verified prebuilt dist/src",
+              dependencyInstall: "production dependency tree built inside pinned Node 22 packaging image from committed lockfile",
+            };
+            fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+          '
+
+          echo "archive=${LINUX_ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${LINUX_SHA256}" >> "$GITHUB_OUTPUT"
 
       - name: Build OCI image and extract image SPDX SBOM
         id: oci
@@ -245,6 +308,12 @@ jobs:
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
+      - name: Attest Linux service bundle provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.linux.outputs.archive }}
+
       - name: Attest OCI archive provenance
         if: github.event_name != 'pull_request'
         uses: actions/attest@v4
@@ -287,6 +356,7 @@ jobs:
           name: ${{ steps.package.outputs.name }}
           path: |
             ${{ steps.package.outputs.archive }}
+            ${{ steps.linux.outputs.archive }}
             ${{ steps.oci.outputs.archive }}
             release/SHA256SUMS
             release/release-manifest.json

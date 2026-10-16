@@ -71,6 +71,45 @@ jobs:
       - name: Run installed Docker rollback drill
         run: bash tests/acceptance/docker-installed-rollback.sh
 
+      - name: Build and inspect Linux systemd bundle
+        run: |
+          set -euo pipefail
+          bash -n packaging/linux/install-bundle.sh
+          bash -n packaging/linux/activate-with-rollback.sh
+          bash -n scripts/build-linux-service-bundle.sh
+          VERSION="$(node -p "require('./package.json').version")"
+          RUNTIME_SHA="$(printf 'd%.0s' {1..64})"
+          LINUX_CONTEXT="${RUNNER_TEMP}/agent-bridge-linux-bundle-context"
+          rm -rf "$LINUX_CONTEXT"
+          mkdir -p "$LINUX_CONTEXT/dist" "$LINUX_CONTEXT/packaging" "$LINUX_CONTEXT/docs" "$LINUX_CONTEXT/scripts"
+          cp package.json package-lock.json README.md "$LINUX_CONTEXT/"
+          cp -R dist/src "$LINUX_CONTEXT/dist/src"
+          cp -R packaging/linux "$LINUX_CONTEXT/packaging/linux"
+          cp docs/LINUX_SERVICE_DEPLOYMENT.md "$LINUX_CONTEXT/docs/"
+          cp scripts/build-linux-service-bundle.sh "$LINUX_CONTEXT/scripts/"
+          docker build \
+            --file packaging/linux/Dockerfile.bundle \
+            --build-arg "KAB_VERSION=${VERSION}" \
+            --build-arg "KAB_REVISION=${GITHUB_SHA}" \
+            --build-arg "KAB_RUNTIME_ARTIFACT_SHA256=${RUNTIME_SHA}" \
+            --tag agent-bridge:linux-bundle-ci \
+            "$LINUX_CONTEXT"
+          CONTAINER_ID="$(docker create agent-bridge:linux-bundle-ci)"
+          trap 'docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CONTAINER_ID:/out/agent-bridge-linux-x64.tar.gz" .ci-agent-bridge-linux-x64.tar.gz
+          docker rm "$CONTAINER_ID" >/dev/null
+          CONTAINER_ID=""
+          trap - EXIT
+          BUNDLE_LISTING="${RUNNER_TEMP}/agent-bridge-linux-bundle.list"
+          tar -tzf .ci-agent-bridge-linux-x64.tar.gz > "$BUNDLE_LISTING"
+          grep -q '/runtime-release.json$' "$BUNDLE_LISTING"
+          grep -q '/dist/src/cli/agent-bridge-runtime.js$' "$BUNDLE_LISTING"
+          grep -q '/packaging/linux/agent-bridge.service$' "$BUNDLE_LISTING"
+          grep -q '/node_modules/' "$BUNDLE_LISTING"
+
+      - name: Run installed Linux rollback drill
+        run: bash tests/acceptance/linux-service-packaging.sh
+
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format=cyclonedx --sbom-type=application > sbom.cdx.json
 
@@ -83,7 +122,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       - name: Upload SBOM
-        if: always()
+        if: ${{ always() && hashFiles('sbom.cdx.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: agent-bridge-sbom-${{ github.sha }}
