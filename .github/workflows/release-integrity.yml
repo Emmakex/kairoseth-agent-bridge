@@ -138,6 +138,34 @@ jobs:
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare Linux production dependencies from release image
+        id: linux-deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          CONTEXT="${{ steps.package.outputs.context }}"
+          DEPS_DIR="${RUNNER_TEMP}/agent-bridge-linux-node-modules"
+          IMAGE="agent-bridge:linux-deps"
+          rm -rf "$DEPS_DIR"
+          mkdir -p "$DEPS_DIR"
+          docker build \
+            --file packaging/docker/Dockerfile.release \
+            --build-arg "KAB_VERSION=${VERSION}" \
+            --build-arg "KAB_REVISION=${GITHUB_SHA}" \
+            --tag "$IMAGE" \
+            "$CONTEXT"
+          CONTAINER_ID="$(docker create "$IMAGE")"
+          trap 'docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CONTAINER_ID:/app/node_modules/." "$DEPS_DIR/"
+          docker rm "$CONTAINER_ID" >/dev/null
+          CONTAINER_ID=""
+          trap - EXIT
+          test -d "$DEPS_DIR/@modelcontextprotocol/server"
+          test -d "$DEPS_DIR/mysql2"
+          test ! -d "$DEPS_DIR/typescript"
+          echo "path=${DEPS_DIR}" >> "$GITHUB_OUTPUT"
+
       - name: Build deterministic Linux systemd bundle
         id: linux
         shell: bash
@@ -152,7 +180,8 @@ jobs:
             "$VERSION" \
             "$GITHUB_SHA" \
             "$RUNTIME_ARTIFACT_SHA256" \
-            "$LINUX_ARCHIVE" >/dev/null
+            "$LINUX_ARCHIVE" \
+            "${{ steps.linux-deps.outputs.path }}" >/dev/null
 
           LINUX_SHA256="$(sha256sum "$LINUX_ARCHIVE" | awk '{print $1}')"
           LINUX_FILE="$(basename "$LINUX_ARCHIVE")"
@@ -173,7 +202,7 @@ jobs:
               runtimeArtifactSha256: process.env.RUNTIME_ARTIFACT_SHA256,
               releaseDirectory: `sha256-${process.env.RUNTIME_ARTIFACT_SHA256}`,
               applicationBuildSource: "verified prebuilt dist/src",
-              dependencyInstall: "npm ci --omit=dev from committed lockfile",
+              dependencyInstall: "production dependency tree extracted from pinned release image built from committed lockfile",
             };
             fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
           '
