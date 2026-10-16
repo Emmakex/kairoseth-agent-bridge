@@ -33,6 +33,7 @@ function record(taskId: string, state = "TASK_STATE_AUTH_REQUIRED"): A2AStoredTa
       correlationId: `correlation-${taskId}`,
       actionFingerprint: "a".repeat(64),
       provenance: {
+        version: "kab.provenance.v1",
         rootCorrelationId: `root-${taskId}`,
         parentCorrelationId: `parent-${taskId}`,
         protocol: "a2a",
