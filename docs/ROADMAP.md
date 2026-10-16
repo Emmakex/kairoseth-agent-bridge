@@ -284,13 +284,13 @@ Status: **complete**
 - [x] Keep A2A v0.3 compatibility disabled by default and document explicit opt-in only
 - [x] Add Phase 5 end-to-end official SDK acceptance and ES/EN interoperability documentation
 
-Production-durable/clustered A2A task storage remains part of Phase 6 hardening; the Phase 5 baseline uses an injectable task-store contract with a scope-safe in-memory implementation for local/dev/tests.
+Durable single-node A2A task storage is provided by Phase 6 hardening; clustered/shared task storage remains open. The Phase 5 default remains a scope-safe in-memory implementation for local/dev/tests, while production single-node hosts can inject the durable store.
 
 Exit condition achieved: MCP, A2A and Kairoseth-native callers share one execution and policy core. A2A v1 callers can discover Kairoseth tools and use the official JavaScript SDK JSON-RPC client for SendMessage/GetTask while authenticated identity, signed delegation, action approval, provenance, correlation and audit remain authoritative Kairoseth controls.
 
 ## Phase 6 — Production hardening
 
-Status: **in progress — packaging, installed rollback, durable A2A storage and operator surfaces remain**
+Status: **in progress — stable promotion, clustered A2A storage, Windows packaging and operator surfaces remain**
 
 - [x] Encrypted temporary local queue
 - [x] General replay/idempotency hardening for clustered/shared deployments
@@ -310,13 +310,14 @@ Status: **in progress — packaging, installed rollback, durable A2A storage and
 - [x] Installation/update and anti-downgrade strategy for local bridge
 - [x] Exact trusted rollback policy at the release-descriptor level
 - [ ] Stable tagged/signed release promotion policy
-- [ ] Installed rollback drill against a packaged runtime
-- [ ] Production-durable/clustered A2A task storage
-- [ ] Docker packaging
-- [ ] Linux service packaging
+- [x] Installed rollback drill against a packaged runtime
+- [x] Durable single-node A2A task storage
+- [ ] Clustered/shared A2A task storage with atomic transition semantics
+- [x] Docker packaging
+- [x] Linux service packaging
 - [ ] Windows service packaging
 - [ ] Observability dashboards in Kairoseth Platform
-- [ ] ES/EN installer/operator-facing surfaces
+- [ ] ES/EN installer/operator-facing surfaces across remaining packaging and Platform UI
 
 Hardening completed so far:
 
@@ -336,9 +337,12 @@ Hardening completed so far:
 - release-candidate artifacts are deterministic, checksum-verified and carry SLSA provenance plus CycloneDX SBOM attestations;
 - the Phase 6 threat model and executable failure-drill suite are versioned with the runtime;
 - update decisions reject version/digest collisions, block untrusted downgrades and allow rollback only to an exact trusted previous release descriptor;
-- runtime artifact verification streams SHA-256 and fails closed before activation.
+- runtime artifact verification streams SHA-256 and fails closed before activation;
+- Docker and Linux/systemd packages have executable installed rollback drills that restore the exact previous runtime while retaining durable state;
+- Linux release bundles are generated from the verified release-image dependency tree and are attested in Release Integrity;
+- `FileA2ATaskStore` persists A2A approval/task state across single-node restarts with exact actor/tenant/installation isolation, atomic replacement and fail-closed corruption/schema checks; clustered/shared task storage remains intentionally separate.
 
-See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md` and `docs/INSTALLATION_UPDATE_STRATEGY.md`.
+See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md`, `docs/INSTALLATION_UPDATE_STRATEGY.md`, `docs/LINUX_SERVICE_DEPLOYMENT.md` and `docs/A2A_TASK_STORAGE.md`.
 
 Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage and operator visibility.
 
