@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   actions: read
+  packages: write
   id-token: write
   attestations: write
 
@@ -19,7 +20,7 @@ jobs:
   promote:
     name: Promote verified stable release
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
 
@@ -83,6 +84,15 @@ jobs:
             validateStableReleaseIdentity(process.argv[1], process.argv[2]);
           ' "$STABLE_TAG" "$VERSION"
           echo "STABLE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse an existing immutable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release ${STABLE_TAG} already exists; stable releases are not mutated in place." >&2
+            exit 1
+          fi
 
       - name: Locate successful Release Integrity source run
         shell: bash
@@ -193,6 +203,9 @@ jobs:
           if (!manifest.artifact?.file || !manifest.linuxService?.file || !manifest.ociImage?.file) {
             throw new Error("Stable promotion requires runtime, Linux and OCI Release Integrity surfaces.");
           }
+          if (!/^sha256:[a-f0-9]{64}$/i.test(manifest.ociImage.exportDigest ?? "")) {
+            throw new Error("Release manifest OCI export digest is invalid.");
+          }
           NODE
           (
             cd "$ROOT"
@@ -261,6 +274,57 @@ jobs:
             --source-digest "$STABLE_SOURCE_SHA" \
             --source-ref refs/heads/main
 
+      - name: Install OCI registry transfer tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends skopeo
+          skopeo --version
+
+      - name: Promote exact OCI archive to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$STABLE_RELEASE_ROOT"
+          MANIFEST="$ROOT/release-manifest.json"
+          OCI_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).ociImage.file' "$MANIFEST")"
+          EXPECTED_DIGEST="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).ociImage.exportDigest' "$MANIFEST")"
+          REGISTRY_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          TARGET_REF="${REGISTRY_REPOSITORY}:${STABLE_VERSION}"
+
+          test -f "$ROOT/$OCI_FILE"
+          [[ "$EXPECTED_DIGEST" =~ ^sha256:[a-fA-F0-9]{64}$ ]]
+
+          printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          trap 'skopeo logout ghcr.io >/dev/null 2>&1 || true' EXIT
+
+          EXISTING_DIGEST=""
+          if EXISTING_DIGEST="$(skopeo inspect --format '{{.Digest}}' "docker://$TARGET_REF" 2>/dev/null)"; then
+            if [[ "${EXISTING_DIGEST,,}" != "${EXPECTED_DIGEST,,}" ]]; then
+              echo "Registry tag ${TARGET_REF} already exists with digest ${EXISTING_DIGEST}; expected ${EXPECTED_DIGEST}." >&2
+              exit 1
+            fi
+            echo "Registry tag already points to the exact verified digest; promotion is a no-op."
+          else
+            skopeo copy \
+              --all \
+              --preserve-digests \
+              --digestfile "${RUNNER_TEMP}/agent-bridge-registry-digest.txt" \
+              "oci-archive:$ROOT/$OCI_FILE" \
+              "docker://$TARGET_REF"
+          fi
+
+          PROMOTED_DIGEST="$(skopeo inspect --format '{{.Digest}}' "docker://$TARGET_REF")"
+          if [[ "${PROMOTED_DIGEST,,}" != "${EXPECTED_DIGEST,,}" ]]; then
+            echo "Registry digest ${PROMOTED_DIGEST} does not match verified OCI export digest ${EXPECTED_DIGEST}." >&2
+            exit 1
+          fi
+
+          echo "STABLE_REGISTRY_IMAGE=$REGISTRY_REPOSITORY" >> "$GITHUB_ENV"
+          echo "STABLE_REGISTRY_REF=$TARGET_REF" >> "$GITHUB_ENV"
+          echo "STABLE_REGISTRY_DIGEST=${PROMOTED_DIGEST,,}" >> "$GITHUB_ENV"
+
       - name: Create stable promotion manifest
         shell: bash
         run: |
@@ -277,6 +341,9 @@ jobs:
           SOURCE_WINDOWS_ARTIFACT="$SOURCE_WINDOWS_ARTIFACT" \
           RELEASE_MANIFEST_SHA256="$RELEASE_MANIFEST_SHA256" \
           WINDOWS_EVIDENCE_SHA256="$WINDOWS_EVIDENCE_SHA256" \
+          STABLE_REGISTRY_IMAGE="$STABLE_REGISTRY_IMAGE" \
+          STABLE_REGISTRY_REF="$STABLE_REGISTRY_REF" \
+          STABLE_REGISTRY_DIGEST="$STABLE_REGISTRY_DIGEST" \
           node --input-type=module <<'NODE'
           import fs from "node:fs";
           const promotion = {
@@ -287,11 +354,17 @@ jobs:
             packageVersion: process.env.STABLE_VERSION,
             sourceCommit: process.env.STABLE_SOURCE_SHA,
             sourceReleaseIntegrityRunId: Number(process.env.SOURCE_RELEASE_RUN_ID),
+            sourceArtifact: process.env.SOURCE_RELEASE_ARTIFACT,
             sourceReleaseIntegrityArtifact: process.env.SOURCE_RELEASE_ARTIFACT,
             sourceWindowsServiceRunId: Number(process.env.SOURCE_WINDOWS_RUN_ID),
             sourceWindowsServiceArtifact: process.env.SOURCE_WINDOWS_ARTIFACT,
             releaseManifestSha256: process.env.RELEASE_MANIFEST_SHA256,
             windowsServiceEvidenceSha256: process.env.WINDOWS_EVIDENCE_SHA256,
+            registry: {
+              image: process.env.STABLE_REGISTRY_IMAGE,
+              ref: process.env.STABLE_REGISTRY_REF,
+              digest: process.env.STABLE_REGISTRY_DIGEST,
+            },
             promotionWorkflow: process.env.GITHUB_WORKFLOW,
             promotionRunId: Number(process.env.GITHUB_RUN_ID),
           };
@@ -307,11 +380,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$STABLE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "GitHub Release ${STABLE_TAG} already exists; stable releases are not mutated in place." >&2
-            exit 1
-          fi
-
           ROOT="$STABLE_RELEASE_ROOT"
           MANIFEST="$ROOT/release-manifest.json"
           RUNTIME_FILE="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).artifact.file' "$MANIFEST")"
@@ -320,10 +388,10 @@ jobs:
 
           cat > stable-release-notes.md <<EOF
           ## ES
-          Release estable de Agent Bridge ${STABLE_VERSION}, promovida sin recompilar desde Release Integrity run ${SOURCE_RELEASE_RUN_ID} y Windows Service Packaging run ${SOURCE_WINDOWS_RUN_ID}. Runtime, Linux, Windows y OCI conservan sus bytes, SHA-256 y attestations OIDC/Sigstore verificadas.
+          Release estable de Agent Bridge ${STABLE_VERSION}, promovida sin recompilar desde Release Integrity run ${SOURCE_RELEASE_RUN_ID} y Windows Service Packaging run ${SOURCE_WINDOWS_RUN_ID}. Runtime, Linux, Windows y OCI conservan sus bytes y attestations verificadas. OCI publicado también como `${STABLE_REGISTRY_REF}@${STABLE_REGISTRY_DIGEST}` sin rebuild ni cambio de digest.
 
           ## EN
-          Stable Agent Bridge ${STABLE_VERSION} release, promoted without rebuilding from Release Integrity run ${SOURCE_RELEASE_RUN_ID} and Windows Service Packaging run ${SOURCE_WINDOWS_RUN_ID}. Runtime, Linux, Windows and OCI retain their verified bytes, SHA-256 values and OIDC/Sigstore attestations.
+          Stable Agent Bridge ${STABLE_VERSION} release, promoted without rebuilding from Release Integrity run ${SOURCE_RELEASE_RUN_ID} and Windows Service Packaging run ${SOURCE_WINDOWS_RUN_ID}. Runtime, Linux, Windows and OCI retain their verified bytes and attestations. OCI is also published as `${STABLE_REGISTRY_REF}@${STABLE_REGISTRY_DIGEST}` without rebuild or digest change.
           EOF
 
           ASSETS=(
