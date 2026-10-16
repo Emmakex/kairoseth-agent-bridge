@@ -110,7 +110,14 @@ try {
 
   $EnvFile = Join-Path $ConfigRoot 'agent-bridge.env'
   if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
-    Copy-Item -LiteralPath (Join-Path $ReleaseDir 'packaging\windows\agent-bridge.env.example') -Destination $EnvFile
+    $EnvTemplate = Get-Content -LiteralPath (Join-Path $ReleaseDir 'packaging\windows\agent-bridge.env.example') -Raw
+    $EscapedStateRoot = $StateRoot -replace '\$', '\\'
+    $InitialEnv = [regex]::Replace(
+      $EnvTemplate,
+      '(?m)^KAB_STATE_DIR=.*$',
+      "KAB_STATE_DIR=$EscapedStateRoot"
+    )
+    Set-Content -LiteralPath $EnvFile -Value $InitialEnv -Encoding utf8
   }
 
   if (-not $TestMode) {
