@@ -50,12 +50,31 @@ test("stable promotion verifies exact provenance for Release Integrity and Windo
   assert.match(content, /05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da/);
 });
 
+test("stable promotion copies the verified OCI archive to GHCR without changing its digest", async () => {
+  const content = await workflow();
+
+  assert.match(content, /packages: write/);
+  assert.match(content, /ghcr\.io\/\$\{GITHUB_REPOSITORY,,\}/);
+  assert.match(content, /ociImage\.exportDigest/);
+  assert.match(content, /skopeo copy/);
+  assert.match(content, /--all/);
+  assert.match(content, /--preserve-digests/);
+  assert.match(content, /oci-archive:/);
+  assert.match(content, /STABLE_REGISTRY_DIGEST/);
+  assert.match(content, /Registry tag already points to the exact verified digest/);
+  assert.match(content, /already exists with digest/);
+  assert.doesNotMatch(content, /:latest/);
+});
+
 test("stable promotion emits one attested promotion record and immutable cross-platform release", async () => {
   const content = await workflow();
 
   assert.match(content, /schemaVersion: "kab\.stable-promotion\.v1"/);
+  assert.match(content, /sourceArtifact: process\.env\.SOURCE_RELEASE_ARTIFACT/);
   assert.match(content, /sourceWindowsServiceRunId/);
   assert.match(content, /windowsServiceEvidenceSha256/);
+  assert.match(content, /registry: \{/);
+  assert.match(content, /STABLE_REGISTRY_REF/);
   assert.match(content, /uses: actions\/attest@v4/);
   assert.match(content, /STABLE_WINDOWS_FILE/);
   assert.match(content, /gh release create/);
