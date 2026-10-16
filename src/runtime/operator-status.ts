@@ -53,6 +53,41 @@ export function normalizeOperatorLocale(value: string | undefined): OperatorLoca
   throw new Error("Operator locale must be 'es' or 'en'.");
 }
 
+export function resolveOperatorLocale(
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): OperatorLocale {
+  let requested: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--locale") {
+      if (requested !== undefined) {
+        throw new Error("Operator locale may only be specified once.");
+      }
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--locale requires 'es' or 'en'.");
+      }
+      requested = value;
+      index += 1;
+      continue;
+    }
+
+    if (argument.startsWith("--locale=")) {
+      if (requested !== undefined) {
+        throw new Error("Operator locale may only be specified once.");
+      }
+      requested = argument.slice("--locale=".length);
+      continue;
+    }
+
+    throw new Error(`Unknown status option: ${argument}`);
+  }
+
+  return normalizeOperatorLocale(requested ?? env.KAB_OPERATOR_LOCALE);
+}
+
 export function renderRuntimeOperatorStatus(
   snapshot: RuntimeOperatorStatusSnapshot,
   locale: OperatorLocale,
