@@ -9,18 +9,31 @@ import {
 } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { A2ATaskState } from "./execution-contracts.js";
 import type {
   A2AStoredTask,
   A2ATaskScope,
   A2ATaskStore,
+  A2ATaskTransitionClaim,
 } from "./task-store.js";
 
-const STORE_SCHEMA_VERSION = "kab.a2a-task-store.v1" as const;
+const STORE_SCHEMA_VERSION = "kab.a2a-task-store.v2" as const;
+const LEGACY_STORE_SCHEMA_VERSION = "kab.a2a-task-store.v1" as const;
 const DEFAULT_MAX_RECORDS = 10_000;
 const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
+interface SerializedA2ATaskEntry {
+  record: A2AStoredTask;
+  claimId?: string | undefined;
+}
+
 interface SerializedA2ATaskStore {
   schemaVersion: typeof STORE_SCHEMA_VERSION;
+  records: SerializedA2ATaskEntry[];
+}
+
+interface LegacySerializedA2ATaskStore {
+  schemaVersion: typeof LEGACY_STORE_SCHEMA_VERSION;
   records: A2AStoredTask[];
 }
 
@@ -33,14 +46,14 @@ export interface FileA2ATaskStoreOptions {
 /**
  * Durable single-node A2A task storage for production runtimes.
  *
- * Writes are serialized inside the process and committed with an atomic rename,
- * so a crash cannot expose a partially-written JSON document. Security scope is
- * revalidated on every read and task IDs may never move across actor/tenant/
- * installation boundaries.
+ * Writes are serialized inside one process and committed with an atomic rename.
+ * Transition claims are persisted before a resumed action executes; after an
+ * uncertain crash, the task remains fail-closed instead of automatically
+ * risking a duplicate mutating side effect.
  *
- * This class is intentionally not presented as a clustered datastore. Multi-node
- * deployments must provide an A2ATaskStore backed by a shared datastore with
- * atomic compare-and-set semantics.
+ * This is still not a clustered datastore. Multi-node deployments must provide
+ * a shared A2ATaskStore whose claimTransition/completeTransition operations are
+ * atomic across every runtime instance.
  */
 export class FileA2ATaskStore implements A2ATaskStore {
   private readonly filePath: string;
@@ -68,27 +81,27 @@ export class FileA2ATaskStore implements A2ATaskStore {
     return this.enqueue(async () => {
       const store = await this.readStore();
       const index = store.records.findIndex(
-        (candidate) => candidate.task.id === record.task.id,
+        (candidate) => candidate.record.task.id === record.task.id,
       );
       const existing = index >= 0 ? store.records[index] : undefined;
 
-      if (existing && !sameScope(existing.scope, record.scope)) {
+      if (existing && !sameScope(existing.record.scope, record.scope)) {
         throw new Error("A2A task ID collision across security scopes.");
+      }
+      if (existing?.claimId) {
+        throw new Error("A2A task has an active transition claim.");
       }
       if (!existing && store.records.length >= this.maxRecords) {
         throw new Error("A2A durable task store record limit exceeded.");
       }
 
-      const next = cloneRecord(record);
+      const next: SerializedA2ATaskEntry = { record: cloneRecord(record) };
       if (index >= 0) {
         store.records[index] = next;
       } else {
         store.records.push(next);
       }
-      store.records.sort((left, right) =>
-        left.task.id.localeCompare(right.task.id),
-      );
-
+      sortEntries(store.records);
       await this.writeStore(store);
     });
   }
@@ -99,13 +112,80 @@ export class FileA2ATaskStore implements A2ATaskStore {
   ): Promise<A2AStoredTask | null> {
     await this.queue;
     const store = await this.readStore();
-    const record = store.records.find(
-      (candidate) => candidate.task.id === taskId,
+    const entry = store.records.find(
+      (candidate) => candidate.record.task.id === taskId,
     );
-    if (!record || !sameScope(record.scope, scope)) {
+    if (!entry || !sameScope(entry.record.scope, scope)) {
       return null;
     }
-    return cloneRecord(record);
+    return cloneRecord(entry.record);
+  }
+
+  async claimTransition(
+    taskId: string,
+    scope: A2ATaskScope,
+    expectedState: A2ATaskState,
+    claimId: string = randomUUID(),
+  ): Promise<A2ATaskTransitionClaim | null> {
+    validateClaimId(claimId);
+    let claim: A2ATaskTransitionClaim | null = null;
+
+    await this.enqueue(async () => {
+      const store = await this.readStore();
+      const entry = store.records.find(
+        (candidate) => candidate.record.task.id === taskId,
+      );
+      if (
+        !entry ||
+        !sameScope(entry.record.scope, scope) ||
+        entry.claimId ||
+        entry.record.task.status.state !== expectedState
+      ) {
+        return;
+      }
+
+      const original = cloneRecord(entry.record);
+      entry.claimId = claimId;
+      entry.record = markWorking(entry.record);
+      await this.writeStore(store);
+      claim = { claimId, record: original };
+    });
+
+    return claim;
+  }
+
+  async completeTransition(
+    claim: A2ATaskTransitionClaim,
+    record: A2AStoredTask,
+  ): Promise<boolean> {
+    validateClaimId(claim.claimId);
+    if (record.task.id !== claim.record.task.id) {
+      throw new Error("A2A transition completion task ID mismatch.");
+    }
+    if (!sameScope(record.scope, claim.record.scope)) {
+      throw new Error("A2A transition completion scope mismatch.");
+    }
+
+    let completed = false;
+    await this.enqueue(async () => {
+      const store = await this.readStore();
+      const index = store.records.findIndex(
+        (candidate) => candidate.record.task.id === record.task.id,
+      );
+      const entry = index >= 0 ? store.records[index] : undefined;
+      if (
+        !entry ||
+        entry.claimId !== claim.claimId ||
+        !sameScope(entry.record.scope, record.scope)
+      ) {
+        return;
+      }
+
+      store.records[index] = { record: cloneRecord(record) };
+      await this.writeStore(store);
+      completed = true;
+    });
+    return completed;
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
@@ -190,9 +270,43 @@ function validateStore(
   value: unknown,
   maxRecords: number,
 ): SerializedA2ATaskStore {
-  if (!isPlainObject(value) || value.schemaVersion !== STORE_SCHEMA_VERSION) {
+  if (!isPlainObject(value)) {
     throw new Error("A2A durable task store schema is invalid or unsupported.");
   }
+
+  if (value.schemaVersion === LEGACY_STORE_SCHEMA_VERSION) {
+    return migrateLegacyStore(value, maxRecords);
+  }
+  if (value.schemaVersion !== STORE_SCHEMA_VERSION) {
+    throw new Error("A2A durable task store schema is invalid or unsupported.");
+  }
+  if (!Array.isArray(value.records) || value.records.length > maxRecords) {
+    throw new Error("A2A durable task store record set is invalid.");
+  }
+
+  const taskIds = new Set<string>();
+  const records = value.records.map((entry) => {
+    if (!isPlainObject(entry) || !isStoredTask(entry.record)) {
+      throw new Error("A2A durable task store contains an invalid record.");
+    }
+    if (entry.claimId !== undefined) validateClaimIdValue(entry.claimId);
+    if (taskIds.has(entry.record.task.id)) {
+      throw new Error("A2A durable task store contains duplicate task IDs.");
+    }
+    taskIds.add(entry.record.task.id);
+    return {
+      record: cloneRecord(entry.record),
+      ...(entry.claimId !== undefined ? { claimId: entry.claimId } : {}),
+    };
+  });
+
+  return { schemaVersion: STORE_SCHEMA_VERSION, records };
+}
+
+function migrateLegacyStore(
+  value: Record<string, unknown>,
+  maxRecords: number,
+): SerializedA2ATaskStore {
   if (!Array.isArray(value.records) || value.records.length > maxRecords) {
     throw new Error("A2A durable task store record set is invalid.");
   }
@@ -206,19 +320,13 @@ function validateStore(
       throw new Error("A2A durable task store contains duplicate task IDs.");
     }
     taskIds.add(record.task.id);
-    return cloneRecord(record);
+    return { record: cloneRecord(record) };
   });
-
-  return {
-    schemaVersion: STORE_SCHEMA_VERSION,
-    records,
-  };
+  return { schemaVersion: STORE_SCHEMA_VERSION, records };
 }
 
 function isStoredTask(value: unknown): value is A2AStoredTask {
-  if (!isPlainObject(value)) {
-    return false;
-  }
+  if (!isPlainObject(value)) return false;
   const { task, scope, invocation } = value;
   return (
     isPlainObject(task) &&
@@ -250,9 +358,7 @@ function isScope(value: unknown): value is A2ATaskScope {
   );
 }
 
-function isPlainObject(
-  value: unknown,
-): value is Record<string, unknown> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -269,8 +375,35 @@ function sameScope(left: A2ATaskScope, right: A2ATaskScope): boolean {
   );
 }
 
+function markWorking(record: A2AStoredTask): A2AStoredTask {
+  const next = cloneRecord(record);
+  next.task.status = { ...next.task.status, state: "TASK_STATE_WORKING" };
+  return next;
+}
+
 function cloneRecord(record: A2AStoredTask): A2AStoredTask {
   return structuredClone(record);
+}
+
+function sortEntries(records: SerializedA2ATaskEntry[]): void {
+  records.sort((left, right) =>
+    left.record.task.id.localeCompare(right.record.task.id),
+  );
+}
+
+function validateClaimId(value: string): void {
+  validateClaimIdValue(value);
+}
+
+function validateClaimIdValue(value: unknown): asserts value is string {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > 256 ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error("A2A transition claim ID is invalid.");
+  }
 }
 
 function normalizePositiveInteger(value: number, name: string): number {
