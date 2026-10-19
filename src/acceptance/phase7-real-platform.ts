@@ -2,10 +2,10 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { ConnectorInstance } from "../connectors/sdk/contracts.js";
 import { defaultGenericRestHttpRuntime } from "../connectors/generic-rest/network.js";
+import type { ConnectorInstance } from "../connectors/sdk/contracts.js";
+import { connectorRuntimeToolId } from "../connectors/sdk/validation.js";
 import { createWooCommerceConnector } from "../connectors/woocommerce/connector.js";
-import { connectorRuntimeToolId } from "../connectors/sdk/registry-adapter.js";
 import type { InstallationBinding } from "../control-channel/enrollment.js";
 import type { PublicBridgeIdentity } from "../identity/installation-identity.js";
 import {
@@ -50,6 +50,15 @@ export interface Phase7RealPlatformAcceptanceConfig {
   evidencePath?: string | undefined;
 }
 
+interface RuntimeObservation {
+  connectivity: "connected";
+  readiness: "ready" | "degraded";
+  runtimeVersion: string;
+  deploymentMode: string;
+  connectorCount: number;
+  toolCount: number;
+}
+
 export interface Phase7RealPlatformAcceptanceEvidence {
   version: "kab.phase7-real-platform-acceptance.v1";
   result: "passed";
@@ -92,17 +101,11 @@ export interface Phase7RealPlatformAcceptanceEvidence {
   recoverableSources: ProductionRuntimeRecoverableSource[];
 }
 
-interface RuntimeObservation {
-  connectivity: "connected";
-  readiness: "ready" | "degraded";
-  runtimeVersion: string;
-  deploymentMode: string;
-  connectorCount: number;
-  toolCount: number;
-}
-
-interface OperatorSession {
-  activeWorkspaceId: string;
+interface RuntimeFacade {
+  publicIdentity(): Promise<PublicBridgeIdentity>;
+  enrollment(): Promise<InstallationBinding | null>;
+  enroll(token: string): Promise<InstallationBinding>;
+  run(signal?: AbortSignal): Promise<void>;
 }
 
 interface CommandProjection {
@@ -110,17 +113,7 @@ interface CommandProjection {
   correlationId: string;
   state: "queued" | "delivered" | "completed";
   deliveryAttempt: number;
-  acknowledgement?: {
-    status?: string;
-    output?: unknown;
-  } | undefined;
-}
-
-interface RuntimeFacade {
-  publicIdentity(): Promise<PublicBridgeIdentity>;
-  enrollment(): Promise<InstallationBinding | null>;
-  enroll(token: string): Promise<InstallationBinding>;
-  run(signal?: AbortSignal): Promise<void>;
+  acknowledgement?: { status?: string; output?: unknown } | undefined;
 }
 
 export interface Phase7RealPlatformAcceptanceDependencies {
@@ -145,9 +138,13 @@ export async function loadPhase7RealPlatformAcceptanceConfig(
   rejectDirectSecretEnv(env, "KAB_ACCEPTANCE_WC_CONSUMER_KEY");
   rejectDirectSecretEnv(env, "KAB_ACCEPTANCE_WC_CONSUMER_SECRET");
 
+  const allowInsecurePlatformHttp = parseBoolean(
+    env.KAB_ACCEPTANCE_ALLOW_INSECURE_PLATFORM_HTTP,
+    false,
+  );
   const platformBaseUrl = normalizedBaseUrl(
     requiredEnv(env, "KAB_PLATFORM_BASE_URL"),
-    parseBoolean(env.KAB_ACCEPTANCE_ALLOW_INSECURE_PLATFORM_HTTP, false),
+    allowInsecurePlatformHttp,
     "KAB_PLATFORM_BASE_URL",
   );
   const stateDir = resolve(requiredEnv(env, "KAB_STATE_DIR"));
@@ -177,7 +174,7 @@ export async function loadPhase7RealPlatformAcceptanceConfig(
   const timeoutMs = env.KAB_ACCEPTANCE_TIMEOUT_MS
     ? positiveInteger(env.KAB_ACCEPTANCE_TIMEOUT_MS, "KAB_ACCEPTANCE_TIMEOUT_MS")
     : DEFAULT_TIMEOUT_MS;
-  if (timeoutMs < 10_000 || timeoutMs > 10 * 60_000) {
+  if (timeoutMs < 10_000 || timeoutMs > 600_000) {
     throw new Error("KAB_ACCEPTANCE_TIMEOUT_MS must be between 10000 and 600000.");
   }
 
@@ -193,7 +190,6 @@ export async function loadPhase7RealPlatformAcceptanceConfig(
     requiredEnv(env, "KAB_ACCEPTANCE_WC_CONSUMER_SECRET_FILE"),
     "WooCommerce consumer secret",
   );
-
   const evidencePath = env.KAB_ACCEPTANCE_EVIDENCE_PATH?.trim()
     ? resolve(env.KAB_ACCEPTANCE_EVIDENCE_PATH.trim())
     : undefined;
@@ -214,10 +210,7 @@ export async function loadPhase7RealPlatformAcceptanceConfig(
       env.KAB_ACCEPTANCE_ALLOW_PRIVATE_WC_NETWORK,
       false,
     ),
-    allowInsecurePlatformHttp: parseBoolean(
-      env.KAB_ACCEPTANCE_ALLOW_INSECURE_PLATFORM_HTTP,
-      false,
-    ),
+    allowInsecurePlatformHttp,
     timeoutMs,
     ...(evidencePath ? { evidencePath } : {}),
   };
@@ -229,16 +222,15 @@ export async function runPhase7RealPlatformAcceptance(
 ): Promise<Phase7RealPlatformAcceptanceEvidence> {
   const fetchImpl = dependencies.fetch ?? globalThis.fetch;
   const now = dependencies.now ?? (() => new Date());
-  const sleep = dependencies.sleep ?? (async (milliseconds: number) => await delay(milliseconds));
-  const recoverableSources = new Set<ProductionRuntimeRecoverableSource>();
+  const sleep = dependencies.sleep ?? (async (milliseconds) => await delay(milliseconds));
   const startedAt = now().toISOString();
+  const recoverableSources = new Set<ProductionRuntimeRecoverableSource>();
   const operator = new PlatformOperatorClient(
     config.platformBaseUrl,
     config.operatorToken,
     fetchImpl,
   );
-
-  const session = await operator.session();
+  const workspaceId = await operator.activeWorkspaceId();
   const enrollmentToken = await operator.issueEnrollmentToken();
   const runtimeFactory = dependencies.runtimeFactory ?? defaultRuntimeFactory;
   const makeRuntime = (): RuntimeFacade =>
@@ -250,17 +242,16 @@ export async function runPhase7RealPlatformAcceptance(
   let runtime = makeRuntime();
   const identityBeforeEnrollment = await runtime.publicIdentity();
   const binding = await runtime.enroll(enrollmentToken);
-  if (binding.tenantId !== session.activeWorkspaceId) {
+  if (binding.tenantId !== workspaceId) {
     throw new Error("Platform enrolled the runtime into a different workspace scope.");
   }
 
   let controller: AbortController | null = null;
   let runPromise: Promise<void> | null = null;
-  const startRuntime = async (): Promise<void> => {
+  const startRuntime = (): void => {
     if (controller) throw new Error("Acceptance runtime is already running.");
     controller = new AbortController();
     runPromise = runtime.run(controller.signal);
-    await Promise.resolve();
   };
   const stopRuntime = async (): Promise<void> => {
     if (!controller) return;
@@ -271,7 +262,7 @@ export async function runPhase7RealPlatformAcceptance(
   };
 
   try {
-    await startRuntime();
+    startRuntime();
     const beforeRestart = await waitForObservation(
       operator,
       binding.installationId,
@@ -280,7 +271,7 @@ export async function runPhase7RealPlatformAcceptance(
       sleep,
     );
 
-    const readCorrelationId = acceptanceCorrelationId("read", now());
+    const readCorrelationId = correlationId("read", now());
     const queuedRead = await operator.queueRead(binding.installationId, {
       toolId: READ_TOOL_ID,
       input: { orderId: config.wooCommerceOrderId },
@@ -293,22 +284,16 @@ export async function runPhase7RealPlatformAcceptance(
       sleep,
     );
     requireExecutedOnce(completedRead, "READ");
-    const actualInitialStatus = orderStatusFromOutput(
-      completedRead.acknowledgement?.output,
-    );
-    if (actualInitialStatus !== config.expectedOrderStatus) {
+    if (orderStatusFromOutput(completedRead.acknowledgement?.output) !== config.expectedOrderStatus) {
       throw new Error(
         "Controlled WooCommerce order no longer matches the explicitly expected pre-mutation status.",
       );
     }
 
-    const writeCorrelationId = acceptanceCorrelationId("write", now());
+    const writeCorrelationId = correlationId("write", now());
     const queuedWrite = await operator.queueApprovedWrite(binding.installationId, {
       toolId: WRITE_TOOL_ID,
-      input: {
-        orderId: config.wooCommerceOrderId,
-        status: config.targetOrderStatus,
-      },
+      input: { orderId: config.wooCommerceOrderId, status: config.targetOrderStatus },
       correlationId: writeCorrelationId,
       ttlSeconds: 120,
     });
@@ -319,10 +304,7 @@ export async function runPhase7RealPlatformAcceptance(
       sleep,
     );
     requireExecutedOnce(completedWrite, "WRITE");
-    const actualTargetStatus = orderStatusFromOutput(
-      completedWrite.acknowledgement?.output,
-    );
-    if (actualTargetStatus !== config.targetOrderStatus) {
+    if (orderStatusFromOutput(completedWrite.acknowledgement?.output) !== config.targetOrderStatus) {
       throw new Error("WooCommerce WRITE completed without the expected controlled target status.");
     }
 
@@ -339,7 +321,7 @@ export async function runPhase7RealPlatformAcceptance(
       throw new Error("Agent Bridge installation binding changed across the controlled restart.");
     }
 
-    await startRuntime();
+    startRuntime();
     const afterRestart = await waitForObservation(
       operator,
       binding.installationId,
@@ -347,14 +329,10 @@ export async function runPhase7RealPlatformAcceptance(
       config.timeoutMs,
       sleep,
     );
-
-    const readAfterRestart = await operator.getCommand(queuedRead.commandId);
-    const writeAfterRestart = await operator.getCommand(queuedWrite.commandId);
-    requireExecutedOnce(readAfterRestart, "READ after restart");
-    requireExecutedOnce(writeAfterRestart, "WRITE after restart");
+    requireExecutedOnce(await operator.getCommand(queuedRead.commandId), "READ after restart");
+    requireExecutedOnce(await operator.getCommand(queuedWrite.commandId), "WRITE after restart");
     await waitForAuditOutboxDrain(config.stateDir, config.timeoutMs, sleep);
     await stopRuntime();
-
     await assertDurableStateContainsNoAcceptanceSecrets(config);
 
     const evidence: Phase7RealPlatformAcceptanceEvidence = {
@@ -395,7 +373,6 @@ export async function runPhase7RealPlatformAcceptance(
       },
       recoverableSources: [...recoverableSources].sort(),
     };
-
     if (config.evidencePath) await writeEvidence(config.evidencePath, evidence);
     return evidence;
   } finally {
@@ -430,7 +407,6 @@ function defaultRuntimeFactory(input: {
       },
     },
   };
-
   return new ProductionRuntime({
     platformBaseUrl: config.platformBaseUrl,
     stateDir: config.stateDir,
@@ -449,31 +425,22 @@ class PlatformOperatorClient {
     private readonly fetchImpl: typeof globalThis.fetch,
   ) {}
 
-  async session(): Promise<OperatorSession> {
-    const body = await this.request("GET", "/v1/session");
-    const activeWorkspaceId = field(body, "activeWorkspaceId");
-    return { activeWorkspaceId };
+  async activeWorkspaceId(): Promise<string> {
+    return field(await this.request("GET", "/v1/session"), "activeWorkspaceId");
   }
 
   async issueEnrollmentToken(): Promise<string> {
-    const body = await this.request(
-      "POST",
-      "/v1/products/agent-bridge/enrollment-tokens",
+    return field(
+      await this.request("POST", "/v1/products/agent-bridge/enrollment-tokens"),
+      "token",
     );
-    return field(body, "token");
   }
 
   async observability(): Promise<Record<string, unknown>> {
-    return await this.request(
-      "GET",
-      "/v1/products/agent-bridge/runtime-observability",
-    );
+    return await this.request("GET", "/v1/products/agent-bridge/runtime-observability");
   }
 
-  async queueRead(
-    installationId: string,
-    body: Record<string, unknown>,
-  ): Promise<CommandProjection> {
+  async queueRead(installationId: string, body: Record<string, unknown>): Promise<CommandProjection> {
     return commandFromResponse(
       await this.request(
         "POST",
@@ -521,13 +488,14 @@ class PlatformOperatorClient {
       redirect: "error",
       cache: "no-store",
     });
-
     const body = await safeJson(response);
     if (!response.ok) {
       const code = body && typeof body.code === "string" ? body.code : "platform_request_failed";
-      throw new Error(`Platform ${method} ${path} failed (${response.status}/${safeCode(code)}).`);
+      throw new Error(
+        `Platform ${method} ${path} failed (${response.status}/${safeCode(code)}).`,
+      );
     }
-    if (!body) throw new Error(`Platform ${method} ${path} returned an invalid JSON object.`);
+    if (!body) throw new Error(`Platform ${method} ${path} returned invalid JSON.`);
     return body;
   }
 }
@@ -541,27 +509,21 @@ async function waitForObservation(
 ): Promise<RuntimeObservation> {
   return await poll(
     async () => {
-      const body = await operator.observability();
-      const summary = record(body.summary);
-      const installations = Array.isArray(summary?.installations)
-        ? summary.installations
-        : [];
+      const summary = record((await operator.observability()).summary);
+      const installations = Array.isArray(summary?.installations) ? summary.installations : [];
       const installation = installations
         .map(record)
-        .find((row) => row?.installationId === installationId);
+        .find((candidate) => candidate?.installationId === installationId);
       if (!installation || installation.connectivity !== "connected") return null;
       if (installation.runtimeVersion !== runtimeVersion) return null;
-      const connectors = record(installation.connectors);
-      const tools = record(installation.tools);
-      const readiness = installation.readiness;
-      if (readiness !== "ready" && readiness !== "degraded") return null;
+      if (installation.readiness !== "ready" && installation.readiness !== "degraded") return null;
       return {
         connectivity: "connected" as const,
-        readiness,
+        readiness: installation.readiness,
         runtimeVersion,
         deploymentMode: String(installation.deploymentMode ?? "unknown"),
-        connectorCount: numberField(connectors, "total"),
-        toolCount: numberField(tools, "total"),
+        connectorCount: numberField(record(installation.connectors), "total"),
+        toolCount: numberField(record(installation.tools), "total"),
       };
     },
     timeoutMs,
@@ -595,11 +557,12 @@ async function waitForAuditOutboxDrain(
   await poll(
     async () => {
       try {
-        const raw = await readFile(resolve(stateDir, "audit", "outbox.json"), "utf8");
-        const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown };
-        return parsed.version === "kab.audit-outbox.v1" &&
-          Array.isArray(parsed.events) &&
-          parsed.events.length === 0
+        const value = JSON.parse(
+          await readFile(resolve(stateDir, "audit", "outbox.json"), "utf8"),
+        ) as { version?: unknown; events?: unknown };
+        return value.version === "kab.audit-outbox.v1" &&
+          Array.isArray(value.events) &&
+          value.events.length === 0
           ? true
           : null;
       } catch {
@@ -623,32 +586,25 @@ function requireExecutedOnce(command: CommandProjection, label: string): void {
 }
 
 function orderStatusFromOutput(output: unknown): string | null {
-  const item = record(output);
-  const status = item?.status;
+  const status = record(output)?.status;
   return typeof status === "string" && ORDER_STATUSES.has(status) ? status : null;
 }
 
 function commandFromResponse(body: Record<string, unknown>): CommandProjection {
   const command = record(body.command);
   if (!command) throw new Error("Platform command response is missing the command projection.");
-  const commandId = field(command, "commandId");
-  const correlationId = field(command, "correlationId");
   const state = command.state;
-  const deliveryAttempt = command.deliveryAttempt;
-  if (
-    state !== "queued" &&
-    state !== "delivered" &&
-    state !== "completed"
-  ) {
+  if (state !== "queued" && state !== "delivered" && state !== "completed") {
     throw new Error("Platform command response contains an invalid command state.");
   }
+  const deliveryAttempt = command.deliveryAttempt;
   if (!Number.isInteger(deliveryAttempt) || Number(deliveryAttempt) < 0) {
     throw new Error("Platform command response contains an invalid delivery attempt.");
   }
   const acknowledgement = record(command.acknowledgement);
   return {
-    commandId,
-    correlationId,
+    commandId: field(command, "commandId"),
+    correlationId: field(command, "correlationId"),
     state,
     deliveryAttempt: Number(deliveryAttempt),
     ...(acknowledgement
@@ -669,9 +625,8 @@ function commandFromResponse(body: Record<string, unknown>): CommandProjection {
 async function assertDurableStateContainsNoAcceptanceSecrets(
   config: Phase7RealPlatformAcceptanceConfig,
 ): Promise<void> {
-  const files = await listFiles(config.stateDir);
   let scannedBytes = 0;
-  for (const file of files) {
+  for (const file of await listFiles(config.stateDir)) {
     const metadata = await stat(file);
     scannedBytes += metadata.size;
     if (scannedBytes > MAX_STATE_SCAN_BYTES) {
@@ -691,9 +646,8 @@ async function assertDurableStateContainsNoAcceptanceSecrets(
 }
 
 async function listFiles(root: string): Promise<string[]> {
-  const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
-  for (const entry of entries) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = resolve(root, entry.name);
     if (entry.isDirectory()) files.push(...(await listFiles(path)));
     else if (entry.isFile()) files.push(path);
@@ -716,9 +670,7 @@ async function readSecretFile(pathValue: string, label: string): Promise<string>
   const path = resolve(pathValue);
   const metadata = await stat(path);
   if (!metadata.isFile()) throw new Error(`The ${label} path must reference a regular file.`);
-  if (metadata.size > MAX_SECRET_FILE_BYTES) {
-    throw new Error(`The ${label} file is unexpectedly large.`);
-  }
+  if (metadata.size > MAX_SECRET_FILE_BYTES) throw new Error(`The ${label} file is unexpectedly large.`);
   if (process.platform !== "win32" && (metadata.mode & 0o077) !== 0) {
     throw new Error(`The ${label} file must not be group/world accessible (use chmod 600).`);
   }
@@ -739,15 +691,13 @@ function normalizedBaseUrl(value: string, allowInsecureHttp: boolean, name: stri
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error(`${name} must use HTTP(S).`);
   }
-  url.pathname = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+  if (!url.pathname.endsWith("/")) url.pathname += "/";
   return url.toString();
 }
 
 function normalizedWooCommerceBaseUrl(value: string): string {
   const url = new URL(value);
-  if (url.protocol !== "https:") {
-    throw new Error("KAB_ACCEPTANCE_WC_BASE_URL must use HTTPS.");
-  }
+  if (url.protocol !== "https:") throw new Error("KAB_ACCEPTANCE_WC_BASE_URL must use HTTPS.");
   if (url.username || url.password || url.search || url.hash) {
     throw new Error("KAB_ACCEPTANCE_WC_BASE_URL must not contain credentials, query, or fragment.");
   }
@@ -794,13 +744,11 @@ function optionalArtifactSha256(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   if (!normalized) return undefined;
   const match = /^(?:sha256:)?([a-fA-F0-9]{64})$/.exec(normalized);
-  if (!match?.[1]) {
-    throw new Error("KAB_ACCEPTANCE_ARTIFACT_SHA256 must be a SHA-256 digest.");
-  }
+  if (!match?.[1]) throw new Error("KAB_ACCEPTANCE_ARTIFACT_SHA256 must be a SHA-256 digest.");
   return `sha256:${match[1].toLowerCase()}`;
 }
 
-function acceptanceCorrelationId(kind: "read" | "write", now: Date): string {
+function correlationId(kind: "read" | "write", now: Date): string {
   return `phase7-real-${kind}-${now.toISOString().replace(/[^0-9]/g, "").slice(0, 17)}`;
 }
 
