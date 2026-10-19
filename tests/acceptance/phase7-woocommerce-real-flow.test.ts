@@ -389,8 +389,10 @@ test("Phase 7 real flow survives restart without replaying WooCommerce side effe
     const secondController = new AbortController();
     const secondRun = restartedRuntime.run(secondController.signal);
     await waitUntil(
-      () => acknowledgements.filter((ack) => ack.run === 2).length >= 2,
-      "Phase 7 restart did not acknowledge command redelivery.",
+      () =>
+        acknowledgements.filter((ack) => ack.run === 2).length >= 2 &&
+        snapshotCount >= 2,
+      "Phase 7 restart did not complete command redelivery and observability.",
     );
     secondController.abort();
     await secondRun;
