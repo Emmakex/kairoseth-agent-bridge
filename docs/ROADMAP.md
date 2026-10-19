@@ -290,7 +290,7 @@ Exit condition achieved: MCP, A2A and Kairoseth-native callers share one executi
 
 ## Phase 6 — Production hardening
 
-Status: **in progress — first stable promotion execution/evidence and Platform observability remain**
+Status: **complete**
 
 - [x] Encrypted temporary local queue
 - [x] General replay/idempotency hardening for clustered/shared deployments
@@ -310,7 +310,7 @@ Status: **in progress — first stable promotion execution/evidence and Platform
 - [x] Installation/update and anti-downgrade strategy for local bridge
 - [x] Exact trusted rollback policy at the release-descriptor level
 - [x] Signed stable GitHub Release promotion policy without rebuild
-- [ ] First stable promotion execution/evidence
+- [x] First stable promotion execution/evidence
 - [x] OCI registry promotion without rebuild/digest change
 - [x] Installed rollback drill against a packaged runtime
 - [x] Durable single-node A2A task storage
@@ -319,10 +319,10 @@ Status: **in progress — first stable promotion execution/evidence and Platform
 - [x] Linux service packaging
 - [x] Windows service packaging
 - [x] ES/EN local runtime operator status CLI
-- [ ] Observability dashboards in Kairoseth Platform
-- [ ] ES/EN operator-facing surfaces for the remaining Kairoseth Platform observability/UI
+- [x] Observability dashboards in Kairoseth Platform
+- [x] ES/EN operator-facing surfaces for the remaining Kairoseth Platform observability/UI
 
-Hardening completed so far:
+Hardening completed:
 
 - encrypted, bounded, TTL-based local operational queue with AES-256-GCM, atomic persistence and key rewrap support;
 - atomic shared command `claim -> execute -> complete` contract with compare-and-set completion;
@@ -345,14 +345,16 @@ Hardening completed so far:
 - Linux release bundles are generated from the verified release-image dependency tree and are attested in Release Integrity;
 - Windows x64 service packaging is deterministic, uses a pinned verified WinSW wrapper, runs as LocalService and has health-gated activation with exact previous-release rollback;
 - `FileA2ATaskStore` persists A2A approval/task state across single-node restarts with exact actor/tenant/installation isolation, atomic replacement and fail-closed corruption/schema checks;
-- `PlatformA2ATaskStore` now has an authoritative Kairoseth Platform implementation backed by MongoDB atomic claims; Kairoseth-Command-Center PR #50 and its real Docker/Mongo acceptance prove two concurrent logical clients produce exactly one claim winner, persist `TASK_STATE_WORKING` before execution and reject completion replay;
+- `PlatformA2ATaskStore` has an authoritative Kairoseth Platform implementation backed by MongoDB atomic claims; Kairoseth-Command-Center PR #50 and its real Docker/Mongo acceptance prove two concurrent logical clients produce exactly one claim winner, persist `TASK_STATE_WORKING` before execution and reject completion replay;
 - stable GitHub Release promotion requires a GitHub-verified signed annotated tag, an exact successful `main` Release Integrity artifact, checksum/provenance re-verification and an attested promotion record without rebuilding distribution bytes;
-- verified OCI artifacts can be promoted to GHCR without rebuild using digest-preserving copy, collision checks and post-copy digest equality verification; the first real registry publication remains part of the first stable promotion execution;
+- Agent Bridge `v0.1.0` was promoted from commit `8d050215c97d2ac9428f35fc58c795e57f2a15a5` by Stable Release Promotion run `39054272004`; the successful promotion verified exact release bytes and provenance, promoted the exact OCI archive to GHCR, attested the stable promotion manifest and published the immutable GitHub Release;
+- Kairoseth Platform observability is implemented through Kairoseth-Command-Center PR #52 and completed by merged PR #54, with authenticated runtime heartbeat/snapshot ingestion and tenant-bound connectivity, readiness, runtime version, deployment mode and aggregate connector/tool health;
+- the Agent Bridge operator surface in Kairoseth Platform is available in ES/EN;
 - local operators can inspect the durable runtime state in ES/EN through `agent-bridge-runtime status` without exposing secrets or opening an additional listener; automation continues to use the separate exit-code healthcheck.
 
-See `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md`, `docs/INSTALLATION_UPDATE_STRATEGY.md`, `docs/LINUX_SERVICE_DEPLOYMENT.md`, `docs/WINDOWS_SERVICE_DEPLOYMENT.md`, `docs/OCI_REGISTRY_PROMOTION.md`, `docs/A2A_TASK_STORAGE.md`, `docs/PLATFORM_A2A_TASK_STORAGE.md`, `docs/PLATFORM_A2A_TASK_STORAGE_ACCEPTANCE.md` and `docs/OPERATOR_RUNTIME_STATUS.md`.
+See `docs/PHASE_6_CLOSURE.md`, `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALTH_ISOLATION.md`, `docs/CREDENTIAL_ROTATION.md`, `docs/SUPPLY_CHAIN_SECURITY.md`, `docs/RELEASE_INTEGRITY.md`, `docs/THREAT_MODEL.md`, `docs/FAILURE_DRILLS.md`, `docs/INSTALLATION_UPDATE_STRATEGY.md`, `docs/LINUX_SERVICE_DEPLOYMENT.md`, `docs/WINDOWS_SERVICE_DEPLOYMENT.md`, `docs/OCI_REGISTRY_PROMOTION.md`, `docs/A2A_TASK_STORAGE.md`, `docs/PLATFORM_A2A_TASK_STORAGE.md`, `docs/PLATFORM_A2A_TASK_STORAGE_ACCEPTANCE.md` and `docs/OPERATOR_RUNTIME_STATUS.md`.
 
-Exit condition: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage and operator visibility.
+Exit condition achieved: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage, a successful stable promotion and authenticated operator visibility in Kairoseth Platform.
 
 ## Product integration order
 
