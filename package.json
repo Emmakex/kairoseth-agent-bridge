@@ -13,7 +13,8 @@
     "test": "tsx --test tests/**/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "start:runtime": "node dist/src/cli/agent-bridge-runtime.js run",
-    "runtime:healthcheck": "node dist/src/cli/agent-bridge-runtime.js healthcheck"
+    "runtime:healthcheck": "node dist/src/cli/agent-bridge-runtime.js healthcheck",
+    "acceptance:phase7-platform": "node dist/src/cli/phase7-real-platform-acceptance.js"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",
