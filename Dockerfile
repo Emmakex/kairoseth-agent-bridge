@@ -8,6 +8,7 @@ COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY src ./src
+COPY scripts ./scripts
 RUN npm run build \
   && npm prune --omit=dev --no-audit --no-fund
 
