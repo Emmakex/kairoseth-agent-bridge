@@ -517,18 +517,21 @@ async function waitForObservation(
       if (!installation || installation.connectivity !== "connected") return null;
       if (installation.runtimeVersion !== runtimeVersion) return null;
       if (installation.readiness !== "ready" && installation.readiness !== "degraded") return null;
+      const connectorCount = numberField(record(installation.connectors), "total");
+      const toolCount = numberField(record(installation.tools), "total");
+      if (connectorCount < 1 || toolCount < 1) return null;
       return {
         connectivity: "connected" as const,
         readiness: installation.readiness,
         runtimeVersion,
         deploymentMode: String(installation.deploymentMode ?? "unknown"),
-        connectorCount: numberField(record(installation.connectors), "total"),
-        toolCount: numberField(record(installation.tools), "total"),
+        connectorCount,
+        toolCount,
       };
     },
     timeoutMs,
     sleep,
-    "Platform did not expose the enrolled Agent Bridge runtime as connected.",
+    "Platform did not expose the enrolled Agent Bridge runtime with connector/tool inventory.",
   );
 }
 
