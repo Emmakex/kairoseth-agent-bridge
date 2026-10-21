@@ -1,8 +1,8 @@
 # Phase 7.3 — Stable artifact real-environment acceptance
 
-Status: **in progress — release preparation**
+Status: **in progress — v0.1.2 release preparation**
 
-Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a published stable Agent Bridge artifact that actually contains the Phase 7 acceptance runner.
+Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a published stable Agent Bridge artifact that contains the Phase 7 acceptance runner and has passed the real-environment readiness conditions discovered during acceptance.
 
 ---
 
@@ -12,7 +12,11 @@ Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a p
 
 `v0.1.0` no puede utilizarse como evidencia de Phase 7.3. Ese release fue promovido desde `8d050215c97d2ac9428f35fc58c795e57f2a15a5`, antes de incorporar el runner de Phase 7.2.
 
-El primer artefacto elegible para 7.3 será `v0.1.1` o una versión estable posterior que cumpla todos los gates siguientes.
+`v0.1.1` tampoco puede cerrar Phase 7.3. La ejecución real contra Kairoseth Platform demostró una carrera en el runner: podía aceptar un runtime como `connected + ready` a partir del heartbeat antes de que Platform hubiese recibido el snapshot de inventario de conectores/tools. El READ se emitía demasiado pronto y Platform lo rechazaba correctamente con `409 agent_bridge_read_tool_unavailable`.
+
+La corrección mantiene el control plane fail-closed: el runner espera ahora a que la observabilidad del runtime incluya inventario real (`connectorCount > 0` y `toolCount > 0`) antes de emitir cualquier comando, tanto en el arranque inicial como después del reinicio controlado.
+
+El primer artefacto elegible para cerrar 7.3 será `v0.1.2` o una versión estable posterior que cumpla todos los gates siguientes.
 
 ### Gates obligatorios
 
@@ -21,10 +25,11 @@ El primer artefacto elegible para 7.3 será `v0.1.1` o una versión estable post
 3. El build contiene `dist/src/cli/agent-bridge-runtime.js`.
 4. El build contiene `dist/src/cli/phase7-real-platform-acceptance.js`.
 5. La versión que reporta el runner se resuelve desde el `package.json` empaquetado; una versión declarada distinta hace fallar la ejecución.
-6. Release Integrity genera y atesta el artefacto exacto de ese commit.
-7. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
-8. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-9. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
+6. El runner no considera command-ready un runtime hasta observar al menos un conector y un tool en el inventario publicado por Platform.
+7. Release Integrity genera y atesta el artefacto exacto de ese commit.
+8. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
+9. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+10. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
 
 ### Ejecución real
 
@@ -59,7 +64,7 @@ Phase 7.3 queda cerrada únicamente con evidencia sanitizada de:
 - versión estable realmente ejecutada;
 - SHA-256 del artefacto estable verificado;
 - enrollment y sesión contra Kairoseth Platform real;
-- observabilidad conectada antes y después del reinicio;
+- observabilidad con inventario de conectores/tools antes de emitir comandos y después del reinicio;
 - WooCommerce READ real con precondición esperada;
 - WooCommerce WRITE real con aprobación y `deliveryAttempt=1`;
 - auditoría drenada;
@@ -77,7 +82,11 @@ No se conserva el ID del pedido, payloads WooCommerce ni credenciales.
 
 `v0.1.0` cannot be used as Phase 7.3 evidence. That release was promoted from `8d050215c97d2ac9428f35fc58c795e57f2a15a5`, before the Phase 7.2 acceptance runner existed.
 
-The first artifact eligible for 7.3 is `v0.1.1` or a later stable release that satisfies every gate below.
+`v0.1.1` also cannot close Phase 7.3. The real Kairoseth Platform execution exposed a runner race: heartbeat-derived `connected + ready` could be accepted before Platform had received the connector/tool inventory snapshot. The runner could therefore queue the READ too early, and Platform correctly failed closed with `409 agent_bridge_read_tool_unavailable`.
+
+The fix preserves the fail-closed control plane: the runner now waits until runtime observability contains real inventory (`connectorCount > 0` and `toolCount > 0`) before any command is queued, both on initial startup and after the controlled restart.
+
+The first artifact eligible to close 7.3 is `v0.1.2` or a later stable release that satisfies every gate below.
 
 ### Mandatory gates
 
@@ -86,10 +95,11 @@ The first artifact eligible for 7.3 is `v0.1.1` or a later stable release that s
 3. The build contains `dist/src/cli/agent-bridge-runtime.js`.
 4. The build contains `dist/src/cli/phase7-real-platform-acceptance.js`.
 5. The runner resolves its version from the packaged `package.json`; a conflicting declared version fails closed.
-6. Release Integrity generates and attests the exact artifact for that commit.
-7. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
-8. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-9. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
+6. The runner does not consider a runtime command-ready until Platform observability reports at least one connector and one tool.
+7. Release Integrity generates and attests the exact artifact for that commit.
+8. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
+9. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+10. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
 
 ### Real execution
 
@@ -103,4 +113,4 @@ npm run acceptance:phase7-platform
 
 ### Exit evidence
 
-7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session/observability, controlled WooCommerce READ and approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
+7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session, inventory-backed observability before commands and after restart, controlled WooCommerce READ and approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
