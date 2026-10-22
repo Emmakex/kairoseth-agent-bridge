@@ -155,7 +155,7 @@ test("Phase 7 waits for runtime inventory before queuing a real command", async 
           correlationId: "read-inventory-race",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { status: "processing" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "processing" } } },
         },
       });
     }
@@ -166,7 +166,7 @@ test("Phase 7 waits for runtime inventory before queuing a real command", async 
           correlationId: "write-inventory-race",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { status: "completed" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "completed" } } },
         },
       });
     }

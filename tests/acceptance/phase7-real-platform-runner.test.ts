@@ -194,7 +194,7 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
           commandId: "read-command",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { id: 42, status: "processing" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { id: 42, status: "processing" } } },
         },
       });
     }
@@ -204,7 +204,7 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
           commandId: "write-command",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { id: 42, status: "completed" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { id: 42, status: "completed" } } },
         },
       });
     }
@@ -346,7 +346,7 @@ function successfulPlatformFetch(): typeof globalThis.fetch {
           commandId: "read-command",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { status: "processing" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "processing" } } },
         },
       });
     }
@@ -356,7 +356,7 @@ function successfulPlatformFetch(): typeof globalThis.fetch {
           commandId: "write-command",
           state: "completed",
           deliveryAttempt: 1,
-          acknowledgement: { status: "executed", output: { status: "completed" } },
+          acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "completed" } } },
         },
       });
     }

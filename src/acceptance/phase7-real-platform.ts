@@ -588,8 +588,12 @@ function requireExecutedOnce(command: CommandProjection, label: string): void {
 }
 
 function orderStatusFromOutput(output: unknown): string | null {
-  const status = record(output)?.status;
-  return typeof status === "string" && ORDER_STATUSES.has(status) ? status : null;
+  const result = record(output);
+  const body = record(result?.body);
+  const status = body?.status;
+  return result?.ok === true && typeof status === "string" && ORDER_STATUSES.has(status)
+    ? status
+    : null;
 }
 
 function commandFromResponse(body: Record<string, unknown>): CommandProjection {
