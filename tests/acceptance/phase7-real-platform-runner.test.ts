@@ -171,7 +171,6 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
       return json({
         command: {
           commandId: "read-command",
-          correlationId: "queued-read",
           state: "queued",
           deliveryAttempt: 0,
         },
@@ -184,7 +183,6 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
       return json({
         command: {
           commandId: "write-command",
-          correlationId: "queued-write",
           state: "queued",
           deliveryAttempt: 0,
         },
@@ -194,7 +192,6 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
       return json({
         command: {
           commandId: "read-command",
-          correlationId: "queued-read",
           state: "completed",
           deliveryAttempt: 1,
           acknowledgement: { status: "executed", output: { id: 42, status: "processing" } },
@@ -205,7 +202,6 @@ test("Phase 7 runner proves real-Platform orchestration without retaining secret
       return json({
         command: {
           commandId: "write-command",
-          correlationId: "queued-write",
           state: "completed",
           deliveryAttempt: 1,
           acknowledgement: { status: "executed", output: { id: 42, status: "completed" } },
@@ -348,7 +344,6 @@ function successfulPlatformFetch(): typeof globalThis.fetch {
       return json({
         command: {
           commandId: "read-command",
-          correlationId: "read",
           state: "completed",
           deliveryAttempt: 1,
           acknowledgement: { status: "executed", output: { status: "processing" } },
@@ -359,7 +354,6 @@ function successfulPlatformFetch(): typeof globalThis.fetch {
       return json({
         command: {
           commandId: "write-command",
-          correlationId: "write",
           state: "completed",
           deliveryAttempt: 1,
           acknowledgement: { status: "executed", output: { status: "completed" } },

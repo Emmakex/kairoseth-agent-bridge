@@ -110,7 +110,6 @@ interface RuntimeFacade {
 
 interface CommandProjection {
   commandId: string;
-  correlationId: string;
   state: "queued" | "delivered" | "completed";
   deliveryAttempt: number;
   acknowledgement?: { status?: string; output?: unknown } | undefined;
@@ -607,7 +606,6 @@ function commandFromResponse(body: Record<string, unknown>): CommandProjection {
   const acknowledgement = record(command.acknowledgement);
   return {
     commandId: field(command, "commandId"),
-    correlationId: field(command, "correlationId"),
     state,
     deliveryAttempt: Number(deliveryAttempt),
     ...(acknowledgement
