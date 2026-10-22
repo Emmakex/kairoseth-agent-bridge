@@ -49,6 +49,18 @@ jobs:
                   raise SystemExit(f'test fixture marker not found: {old}')
               text = text.replace(old, new)
           test.write_text(text)
+
+          inventory = Path('tests/acceptance/phase7-runtime-inventory-readiness.test.ts')
+          text = inventory.read_text()
+          replacements = {
+              'acknowledgement: { status: "executed", output: { status: "processing" } }': 'acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "processing" } } }',
+              'acknowledgement: { status: "executed", output: { status: "completed" } }': 'acknowledgement: { status: "executed", output: { status: 200, ok: true, body: { status: "completed" } } }',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'inventory fixture marker not found: {old}')
+              text = text.replace(old, new, 1)
+          inventory.write_text(text)
           PY
 
       - name: Verify regression
@@ -59,6 +71,8 @@ jobs:
           grep -Fq 'result?.ok === true' src/acceptance/phase7-real-platform.ts
           grep -Fq 'body: { id: 42, status: "processing" }' tests/acceptance/phase7-real-platform-runner.test.ts
           grep -Fq 'body: { id: 42, status: "completed" }' tests/acceptance/phase7-real-platform-runner.test.ts
+          grep -Fq 'body: { status: "processing" }' tests/acceptance/phase7-runtime-inventory-readiness.test.ts
+          grep -Fq 'body: { status: "completed" }' tests/acceptance/phase7-runtime-inventory-readiness.test.ts
           npm ci --no-audit --no-fund
           npm run check
 
@@ -68,6 +82,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/acceptance/phase7-real-platform.ts tests/acceptance/phase7-real-platform-runner.test.ts
+          git add src/acceptance/phase7-real-platform.ts tests/acceptance/phase7-real-platform-runner.test.ts tests/acceptance/phase7-runtime-inventory-readiness.test.ts
           git commit -m "fix(phase7): read WooCommerce status from Generic REST body"
           git push origin HEAD:phase7/generic-rest-result-contract
