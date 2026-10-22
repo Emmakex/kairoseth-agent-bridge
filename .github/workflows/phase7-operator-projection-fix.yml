@@ -1,0 +1,70 @@
+name: Apply Phase 7 Operator Projection Fix
+
+on:
+  push:
+    branches:
+      - phase7/operator-projection-contract
+    paths:
+      - .github/workflows/phase7-operator-projection-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: phase7/operator-projection-contract
+          fetch-depth: 0
+
+      - name: Align acceptance parser with sanitized operator projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('src/acceptance/phase7-real-platform.ts')
+          text = source.read_text()
+          old = '''interface CommandProjection {\n  commandId: string;\n  correlationId: string;\n  state: "queued" | "delivered" | "completed";'''
+          new = '''interface CommandProjection {\n  commandId: string;\n  state: "queued" | "delivered" | "completed";'''
+          if old not in text:
+              raise SystemExit('CommandProjection contract marker not found')
+          text = text.replace(old, new, 1)
+          old = '''    commandId: field(command, "commandId"),\n    correlationId: field(command, "correlationId"),\n    state,'''
+          new = '''    commandId: field(command, "commandId"),\n    state,'''
+          if old not in text:
+              raise SystemExit('commandFromResponse correlation marker not found')
+          source.write_text(text.replace(old, new, 1))
+
+          test = Path('tests/acceptance/phase7-real-platform-runner.test.ts')
+          text = test.read_text()
+          import re
+          updated, count = re.subn(r'^\s*correlationId: "(?:queued-read|queued-write|read|write)",\n', '', text, flags=re.M)
+          if count < 4:
+              raise SystemExit(f'expected at least 4 sanitized projection fixtures, changed {count}')
+          test.write_text(updated)
+          PY
+
+      - name: Verify regression shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Fq 'correlationId: field(command, "correlationId")' src/acceptance/phase7-real-platform.ts
+          ! grep -Eq 'correlationId: "(queued-read|queued-write|read|write)"' tests/acceptance/phase7-real-platform-runner.test.ts
+          npm ci --no-audit --no-fund
+          npm run check
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/acceptance/phase7-real-platform.ts tests/acceptance/phase7-real-platform-runner.test.ts
+          git commit -m "fix(phase7): accept sanitized operator command projections"
+          git push origin HEAD:phase7/operator-projection-contract
