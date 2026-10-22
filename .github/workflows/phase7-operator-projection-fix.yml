@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   apply:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, kairoseth-ci]
     steps:
       - name: Checkout fix branch
         uses: actions/checkout@v4
@@ -27,26 +27,28 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           source = Path('src/acceptance/phase7-real-platform.ts')
           text = source.read_text()
           old = '''interface CommandProjection {\n  commandId: string;\n  correlationId: string;\n  state: "queued" | "delivered" | "completed";'''
           new = '''interface CommandProjection {\n  commandId: string;\n  state: "queued" | "delivered" | "completed";'''
-          if old not in text:
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
               raise SystemExit('CommandProjection contract marker not found')
-          text = text.replace(old, new, 1)
+
           old = '''    commandId: field(command, "commandId"),\n    correlationId: field(command, "correlationId"),\n    state,'''
           new = '''    commandId: field(command, "commandId"),\n    state,'''
-          if old not in text:
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
               raise SystemExit('commandFromResponse correlation marker not found')
-          source.write_text(text.replace(old, new, 1))
+          source.write_text(text)
 
           test = Path('tests/acceptance/phase7-real-platform-runner.test.ts')
           text = test.read_text()
-          import re
-          updated, count = re.subn(r'^\s*correlationId: "(?:queued-read|queued-write|read|write)",\n', '', text, flags=re.M)
-          if count < 4:
-              raise SystemExit(f'expected at least 4 sanitized projection fixtures, changed {count}')
+          updated = re.sub(r'^\s*correlationId: "(?:queued-read|queued-write|read|write)",\n', '', text, flags=re.M)
           test.write_text(updated)
           PY
 
@@ -66,5 +68,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/acceptance/phase7-real-platform.ts tests/acceptance/phase7-real-platform-runner.test.ts
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "fix(phase7): accept sanitized operator command projections"
           git push origin HEAD:phase7/operator-projection-contract
