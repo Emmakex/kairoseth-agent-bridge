@@ -1,6 +1,6 @@
 # Phase 7.3 — Stable artifact real-environment acceptance
 
-Status: **in progress — v0.1.3 release preparation**
+Status: **in progress — v0.1.4 release preparation**
 
 Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a published stable Agent Bridge artifact that contains the Phase 7 acceptance runner and has passed the real-environment contract conditions discovered during acceptance.
 
@@ -20,7 +20,11 @@ La corrección de `v0.1.2` mantuvo el control plane fail-closed: el runner esper
 
 La corrección posterior no debilita Platform: `CommandProjection` y `commandFromResponse()` dejan de exigir `correlationId` en respuestas del operador. La aceptación continúa usando los correlation IDs generados localmente al emitir READ/WRITE para relacionar su propia evidencia, sin depender de que Platform los vuelva a exponer.
 
-El primer artefacto elegible para cerrar 7.3 será `v0.1.3` o una versión estable posterior que cumpla todos los gates siguientes.
+`v0.1.3` alcanzó correctamente el READ real de WooCommerce, pero tampoco puede cerrar Phase 7.3. La ejecución descubrió que el runner interpretaba incorrectamente el resultado del conector oficial: WooCommerce usa Generic REST y su contrato devuelve un envelope `{ status, ok, body }`. El runner comparaba `output.status` —el código HTTP— con el estado esperado del pedido, en lugar de comparar `output.body.status`.
+
+La corrección para `v0.1.4` mantiene la precondición fail-closed antes del WRITE: exige `output.ok === true` y valida el estado real del pedido exclusivamente desde `output.body.status`. Las regresiones de Phase 7 usan ahora el mismo contrato de resultado que el conector real.
+
+El primer artefacto elegible para cerrar 7.3 será `v0.1.4` o una versión estable posterior que cumpla todos los gates siguientes.
 
 ### Gates obligatorios
 
@@ -31,10 +35,11 @@ El primer artefacto elegible para cerrar 7.3 será `v0.1.3` o una versión estab
 5. La versión que reporta el runner se resuelve desde el `package.json` empaquetado; una versión declarada distinta hace fallar la ejecución.
 6. El runner no considera command-ready un runtime hasta observar al menos un conector y un tool en el inventario publicado por Platform.
 7. La proyección saneada del operador se acepta sin exigir `correlationId`; ese campo continúa oculto por Platform.
-8. Release Integrity genera y atesta el artefacto exacto de ese commit.
-9. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
-10. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-11. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
+8. La precondición WooCommerce interpreta el contrato Generic REST real: `output.ok === true` y estado en `output.body.status`.
+9. Release Integrity genera y atesta el artefacto exacto de ese commit.
+10. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
+11. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+12. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
 
 ### Ejecución real
 
@@ -71,7 +76,7 @@ Phase 7.3 queda cerrada únicamente con evidencia sanitizada de:
 - enrollment y sesión contra Kairoseth Platform real;
 - observabilidad con inventario de conectores/tools antes de emitir comandos y después del reinicio;
 - proyección de operador compatible con el contrato saneado, sin requerir `correlationId` expuesto;
-- WooCommerce READ real con precondición esperada;
+- WooCommerce READ real con envelope Generic REST válido y precondición esperada;
 - WooCommerce WRITE real con aprobación y `deliveryAttempt=1`;
 - auditoría drenada;
 - identidad y binding preservados tras reinicio;
@@ -96,7 +101,11 @@ The `v0.1.2` correction preserved the fail-closed control plane: the runner wait
 
 The subsequent fix does not weaken Platform: `CommandProjection` and `commandFromResponse()` no longer require `correlationId` from operator responses. Acceptance still uses the correlation IDs generated locally when it queues READ/WRITE commands to relate its own evidence, without requiring Platform to expose them back through the operator projection.
 
-The first artifact eligible to close 7.3 is `v0.1.3` or a later stable release that satisfies every gate below.
+`v0.1.3` correctly reached the real WooCommerce READ but also cannot close Phase 7.3. The execution exposed a result-contract mismatch in the runner: the official WooCommerce connector uses Generic REST, whose execution contract returns an envelope `{ status, ok, body }`. The runner compared `output.status` —the HTTP status code— with the expected order state instead of reading `output.body.status`.
+
+The `v0.1.4` correction keeps the pre-WRITE guard fail-closed: it requires `output.ok === true` and validates the actual order state exclusively from `output.body.status`. Phase 7 regression fixtures now mirror the real connector result contract.
+
+The first artifact eligible to close 7.3 is `v0.1.4` or a later stable release that satisfies every gate below.
 
 ### Mandatory gates
 
@@ -107,10 +116,11 @@ The first artifact eligible to close 7.3 is `v0.1.3` or a later stable release t
 5. The runner resolves its version from the packaged `package.json`; a conflicting declared version fails closed.
 6. The runner does not consider a runtime command-ready until Platform observability reports at least one connector and one tool.
 7. The sanitized operator projection is accepted without requiring `correlationId`; Platform continues to redact that field.
-8. Release Integrity generates and attests the exact artifact for that commit.
-9. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
-10. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-11. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
+8. The WooCommerce precondition interprets the real Generic REST contract: `output.ok === true` and order state at `output.body.status`.
+9. Release Integrity generates and attests the exact artifact for that commit.
+10. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
+11. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+12. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
 
 ### Real execution
 
@@ -124,4 +134,4 @@ npm run acceptance:phase7-platform
 
 ### Exit evidence
 
-7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session, inventory-backed observability before commands and after restart, compatibility with the sanitized operator projection without requiring an exposed `correlationId`, controlled WooCommerce READ and approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
+7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session, inventory-backed observability before commands and after restart, compatibility with the sanitized operator projection without requiring an exposed `correlationId`, controlled WooCommerce READ with a valid Generic REST result envelope and expected precondition, approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
