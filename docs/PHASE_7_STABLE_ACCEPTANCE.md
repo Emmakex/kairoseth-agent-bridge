@@ -1,8 +1,8 @@
 # Phase 7.3 — Stable artifact real-environment acceptance
 
-Status: **in progress — v0.1.2 release preparation**
+Status: **in progress — v0.1.3 release preparation**
 
-Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a published stable Agent Bridge artifact that contains the Phase 7 acceptance runner and has passed the real-environment readiness conditions discovered during acceptance.
+Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a published stable Agent Bridge artifact that contains the Phase 7 acceptance runner and has passed the real-environment contract conditions discovered during acceptance.
 
 ---
 
@@ -14,9 +14,13 @@ Phase 7.3 closes only when the real Kairoseth Platform flow is executed from a p
 
 `v0.1.1` tampoco puede cerrar Phase 7.3. La ejecución real contra Kairoseth Platform demostró una carrera en el runner: podía aceptar un runtime como `connected + ready` a partir del heartbeat antes de que Platform hubiese recibido el snapshot de inventario de conectores/tools. El READ se emitía demasiado pronto y Platform lo rechazaba correctamente con `409 agent_bridge_read_tool_unavailable`.
 
-La corrección mantiene el control plane fail-closed: el runner espera ahora a que la observabilidad del runtime incluya inventario real (`connectorCount > 0` y `toolCount > 0`) antes de emitir cualquier comando, tanto en el arranque inicial como después del reinicio controlado.
+La corrección de `v0.1.2` mantuvo el control plane fail-closed: el runner espera a que la observabilidad del runtime incluya inventario real (`connectorCount > 0` y `toolCount > 0`) antes de emitir cualquier comando, tanto en el arranque inicial como después del reinicio controlado.
 
-El primer artefacto elegible para cerrar 7.3 será `v0.1.2` o una versión estable posterior que cumpla todos los gates siguientes.
+`v0.1.2` avanzó más en la ejecución real, pero tampoco puede cerrar Phase 7.3. El runner exigía `correlationId` en la proyección de comandos del operador. Kairoseth Platform elimina ese campo deliberadamente de la superficie saneada del operador y sus pruebas de seguridad exigen que no se exponga. Platform estaba cumpliendo correctamente su contrato; el defecto estaba en el parser de aceptación de Agent Bridge.
+
+La corrección posterior no debilita Platform: `CommandProjection` y `commandFromResponse()` dejan de exigir `correlationId` en respuestas del operador. La aceptación continúa usando los correlation IDs generados localmente al emitir READ/WRITE para relacionar su propia evidencia, sin depender de que Platform los vuelva a exponer.
+
+El primer artefacto elegible para cerrar 7.3 será `v0.1.3` o una versión estable posterior que cumpla todos los gates siguientes.
 
 ### Gates obligatorios
 
@@ -26,10 +30,11 @@ El primer artefacto elegible para cerrar 7.3 será `v0.1.2` o una versión estab
 4. El build contiene `dist/src/cli/phase7-real-platform-acceptance.js`.
 5. La versión que reporta el runner se resuelve desde el `package.json` empaquetado; una versión declarada distinta hace fallar la ejecución.
 6. El runner no considera command-ready un runtime hasta observar al menos un conector y un tool en el inventario publicado por Platform.
-7. Release Integrity genera y atesta el artefacto exacto de ese commit.
-8. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
-9. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-10. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
+7. La proyección saneada del operador se acepta sin exigir `correlationId`; ese campo continúa oculto por Platform.
+8. Release Integrity genera y atesta el artefacto exacto de ese commit.
+9. La promoción estable usa un tag anotado firmado y verificado por GitHub, sin reconstruir los bytes.
+10. Antes de ejecutar 7.3 se verifica el SHA-256 del archive estable y se suministra ese digest como `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+11. La aceptación se ejecuta desde el contenido extraído de ese mismo archive estable, no desde un checkout de desarrollo.
 
 ### Ejecución real
 
@@ -65,6 +70,7 @@ Phase 7.3 queda cerrada únicamente con evidencia sanitizada de:
 - SHA-256 del artefacto estable verificado;
 - enrollment y sesión contra Kairoseth Platform real;
 - observabilidad con inventario de conectores/tools antes de emitir comandos y después del reinicio;
+- proyección de operador compatible con el contrato saneado, sin requerir `correlationId` expuesto;
 - WooCommerce READ real con precondición esperada;
 - WooCommerce WRITE real con aprobación y `deliveryAttempt=1`;
 - auditoría drenada;
@@ -84,9 +90,13 @@ No se conserva el ID del pedido, payloads WooCommerce ni credenciales.
 
 `v0.1.1` also cannot close Phase 7.3. The real Kairoseth Platform execution exposed a runner race: heartbeat-derived `connected + ready` could be accepted before Platform had received the connector/tool inventory snapshot. The runner could therefore queue the READ too early, and Platform correctly failed closed with `409 agent_bridge_read_tool_unavailable`.
 
-The fix preserves the fail-closed control plane: the runner now waits until runtime observability contains real inventory (`connectorCount > 0` and `toolCount > 0`) before any command is queued, both on initial startup and after the controlled restart.
+The `v0.1.2` correction preserved the fail-closed control plane: the runner waits until runtime observability contains real inventory (`connectorCount > 0` and `toolCount > 0`) before any command is queued, both on initial startup and after the controlled restart.
 
-The first artifact eligible to close 7.3 is `v0.1.2` or a later stable release that satisfies every gate below.
+`v0.1.2` progressed further in the real execution but also cannot close Phase 7.3. The runner required `correlationId` in the operator command projection. Kairoseth Platform deliberately removes that field from the sanitized operator surface, and its security acceptance requires it to remain absent. Platform was honoring its contract; the defect was in the Agent Bridge acceptance parser.
+
+The subsequent fix does not weaken Platform: `CommandProjection` and `commandFromResponse()` no longer require `correlationId` from operator responses. Acceptance still uses the correlation IDs generated locally when it queues READ/WRITE commands to relate its own evidence, without requiring Platform to expose them back through the operator projection.
+
+The first artifact eligible to close 7.3 is `v0.1.3` or a later stable release that satisfies every gate below.
 
 ### Mandatory gates
 
@@ -96,10 +106,11 @@ The first artifact eligible to close 7.3 is `v0.1.2` or a later stable release t
 4. The build contains `dist/src/cli/phase7-real-platform-acceptance.js`.
 5. The runner resolves its version from the packaged `package.json`; a conflicting declared version fails closed.
 6. The runner does not consider a runtime command-ready until Platform observability reports at least one connector and one tool.
-7. Release Integrity generates and attests the exact artifact for that commit.
-8. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
-9. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
-10. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
+7. The sanitized operator projection is accepted without requiring `correlationId`; Platform continues to redact that field.
+8. Release Integrity generates and attests the exact artifact for that commit.
+9. Stable promotion uses a GitHub-verified signed annotated tag without rebuilding distribution bytes.
+10. The stable archive SHA-256 is verified before 7.3 and supplied as `KAB_ACCEPTANCE_ARTIFACT_SHA256`.
+11. Acceptance is run from the extracted contents of that same verified stable archive, not from a development checkout.
 
 ### Real execution
 
@@ -113,4 +124,4 @@ npm run acceptance:phase7-platform
 
 ### Exit evidence
 
-7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session, inventory-backed observability before commands and after restart, controlled WooCommerce READ and approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
+7.3 closes only when sanitized evidence proves the stable version and verified artifact digest, real Platform enrollment/session, inventory-backed observability before commands and after restart, compatibility with the sanitized operator projection without requiring an exposed `correlationId`, controlled WooCommerce READ and approved WRITE, audit delivery, restart identity/binding preservation, completed-command non-redelivery and a clean durable-state secret scan.
