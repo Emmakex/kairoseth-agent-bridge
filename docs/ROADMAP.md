@@ -356,6 +356,36 @@ See `docs/PHASE_6_CLOSURE.md`, `docs/CIRCUIT_BREAKERS.md`, `docs/CONNECTOR_HEALT
 
 Exit condition achieved: production-ready bridge runtime for hosted, hybrid and on-premises installations, with packaged deployment, verified installed rollback, durable production task storage, a successful stable promotion and authenticated operator visibility in Kairoseth Platform.
 
+## Phase 7 — Real stable-artifact product acceptance
+
+Status: **complete**
+
+- [x] Add Phase 7.1 real WooCommerce flow acceptance through `ProductionRuntime` + Platform control channel
+- [x] Add Phase 7.2 real Platform acceptance runner with file-only secrets, stable-artifact binding and sanitized evidence
+- [x] Require inventory-backed readiness before real commands are queued
+- [x] Accept the sanitized operator projection without requiring Platform to expose `correlationId`
+- [x] Interpret the real Generic REST result envelope `{ status, ok, body }` fail-closed for WooCommerce preconditions
+- [x] Promote a signed, GitHub-verified stable artifact that contains the acceptance runner
+- [x] Execute the exact stable archive against the live Kairoseth Platform control plane and a disposable WooCommerce instance
+- [x] Prove real READ with the expected precondition and `deliveryAttempt=1`
+- [x] Prove approved real WRITE with target-state validation and `deliveryAttempt=1`
+- [x] Prove connector/tool inventory before commands and after controlled restart
+- [x] Prove identity/binding preservation and completed-command non-redelivery after restart
+- [x] Prove audit outbox drain and clean durable-state secret scan
+- [x] Persist sanitized exit evidence as a workflow artifact
+
+Canonical closure:
+
+- release `v0.1.4`;
+- source commit `595fbddb38562caf4cf0a888fc22deb6524e8732`;
+- runtime archive SHA-256 `de222c168699a8c00eae6a656273e559837348565a665e8bd5c886ca65c01e9d`;
+- Kairoseth Command Center final live acceptance run `41194834996` on main `988193261dcc2858606a027af01c6891d765540b`;
+- sanitized evidence artifact ID `13040885139`.
+
+See `docs/PHASE_7_STABLE_ACCEPTANCE.md` and `docs/PHASE_7_CLOSURE.md`.
+
+Exit condition achieved: the exact published and verified stable Agent Bridge artifact executes the real `enrollment -> observability -> READ -> approved WRITE -> audit -> restart -> non-redelivery` path against Kairoseth Platform without policy bypass and leaves durable sanitized evidence.
+
 ## Product integration order
 
 The bridge is transversal infrastructure. Initial consumers should integrate through contracts rather than forks:
