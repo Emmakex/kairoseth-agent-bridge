@@ -94,7 +94,11 @@ Core documentation:
 - `docs/AUDIT_DELIVERY_PROTOCOL.md`
 - `docs/CONNECTOR_SDK.md`
 - `docs/GENERIC_REST_CONNECTOR.md`
+- `docs/PHASE_7_STABLE_ACCEPTANCE.md`
+- `docs/PHASE_7_CLOSURE.md`
 
 ## Status
 
-Phases 0–5 are complete. Phase 6 — Production hardening — is in progress, including release integrity, supply-chain/security hardening, packaging, observability and ES/EN installer/operator surfaces.
+Phases 0–7 are complete. Phase 7 closed on the published and verified `v0.1.4` runtime after a real Kairoseth Platform + disposable WooCommerce acceptance proved enrollment, inventory-backed observability, real READ, approved WRITE, durable audit, restart preservation, non-redelivery and durable-state secret hygiene from the exact stable artifact.
+
+The next work is product integration through the shared Agent Bridge contracts, following `docs/ROADMAP.md` and without creating private per-product runtime forks.
